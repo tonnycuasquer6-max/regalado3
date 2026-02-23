@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createClient } from '@supabase/supabase-js';
 import { supabase } from '../../services/supabaseClient';
 
 const CheckIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-5 h-5 pointer-events-none"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>;
@@ -30,11 +31,15 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
     const fetchApprovals = async () => {
         setLoading(true);
         const { data: updatesData } = await supabase.from('case_updates').select(`id, created_at, estado_aprobacion, perfil:profiles!case_updates_perfil_id_fkey(primer_nombre, primer_apellido, rol), caso:cases!case_id(id, titulo, cliente:profiles!cliente_id(primer_nombre, primer_apellido))`).eq('estado_aprobacion', 'pendiente');
-
-        const { data: petitionsData } = await supabase.from('peticiones_acceso').select(`id, tipo, created_at, temp_email, temp_password, temp_primer_nombre, temp_segundo_nombre, temp_primer_apellido, temp_segundo_apellido, temp_cedula, temp_foto_url, trabajador:profiles!peticiones_acceso_trabajador_id_fkey(primer_nombre, primer_apellido, rol), cliente:profiles!peticiones_acceso_cliente_id_fkey(primer_nombre, primer_apellido), caso:cases!peticiones_acceso_caso_id_fkey(id, titulo)`).eq('estado', 'pendiente');
+        
+        // Obtenemos los perfiles creados por trabajadores (que están "pendientes")
+        const { data: pendingClientsData } = await supabase.from('profiles').select(`id, email, primer_nombre, primer_apellido, cedula, created_at, archivo_registro, creador:profiles!creado_por(primer_nombre, primer_apellido, rol)`).eq('categoria_usuario', 'cliente').eq('estado_aprobacion', 'pendiente');
+        
+        const { data: petitionsData } = await supabase.from('peticiones_acceso').select(`id, tipo, created_at, trabajador:profiles!peticiones_acceso_trabajador_id_fkey(primer_nombre, primer_apellido, rol), cliente:profiles!peticiones_acceso_cliente_id_fkey(primer_nombre, primer_apellido), caso:cases!peticiones_acceso_caso_id_fkey(id, titulo)`).eq('estado', 'pendiente');
 
         let combined: any[] = [];
         if (updatesData) combined = [...combined, ...updatesData.map(u => ({ ...u, _type: 'update' }))];
+        if (pendingClientsData) combined = [...combined, ...pendingClientsData.map(c => ({ ...c, _type: 'new_client' }))];
         if (petitionsData) combined = [...combined, ...petitionsData.map(p => ({ ...p, _type: 'petition' }))];
 
         combined.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
@@ -44,49 +49,45 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
 
     useEffect(() => { fetchApprovals(); }, []);
 
-    // SOLUCIÓN: Crear cuenta sin auto-loguearse ni destruir la sesión del admin.
+    // SOLUCIÓN: Usamos un cliente secundario de Supabase para no tocar la sesión del Admin
     const handleApproveClient = async (item: any) => {
         try {
-            // Guardamos la sesión actual del admin antes de crear al cliente
-            const { data: { session: adminSession } } = await supabase.auth.getSession();
+            const url = (supabase as any).supabaseUrl;
+            const key = (supabase as any).supabaseKey;
+            
+            // Creamos un cliente que NO GUARDA LA SESIÓN
+            const tempClient = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });
 
-            // Creamos al usuario. El backend no tiene una forma nativa de "no loguear" en este tier,
-            // pero podemos usar el flujo normal.
-            const { data: authData, error: authError } = await supabase.auth.signUp({
-                email: item.temp_email,
-                password: item.temp_password,
+            // Usamos la contraseña temporal guardada en archivo_registro
+            const { data: authData, error: authError } = await tempClient.auth.signUp({
+                email: item.email,
+                password: item.archivo_registro,
             });
 
             if (authError) throw authError;
 
             const userId = authData.user?.id;
             if (userId) {
+                // Borramos el perfil temporal
+                await supabase.from('profiles').delete().eq('id', item.id);
+                
+                // Creamos el perfil OFICIAL
                 const { error: profileError } = await supabase.from('profiles').insert({
                     id: userId,
-                    email: item.temp_email,
-                    primer_nombre: item.temp_primer_nombre,
-                    segundo_nombre: item.temp_segundo_nombre,
-                    primer_apellido: item.temp_primer_apellido,
-                    segundo_apellido: item.temp_segundo_apellido,
-                    cedula: item.temp_cedula,
-                    foto_url: item.temp_foto_url,
+                    email: item.email,
+                    primer_nombre: item.primer_nombre,
+                    segundo_nombre: item.segundo_nombre,
+                    primer_apellido: item.primer_apellido,
+                    segundo_apellido: item.segundo_apellido,
+                    cedula: item.cedula,
+                    foto_url: item.foto_url,
                     rol: 'cliente',
                     categoria_usuario: 'cliente',
-                    estado_aprobacion: 'aprobado'
+                    estado_aprobacion: 'aprobado',
+                    creado_por: item.creador?.id
                 });
+                
                 if (profileError) throw profileError;
-                
-                await supabase.from('peticiones_acceso').delete().eq('id', item.id);
-                
-                // Si la sesión del admin se perdió por crear al usuario, 
-                // forzamos el restablecimiento de la sesión usando el token del admin que guardamos.
-                if (adminSession) {
-                    await supabase.auth.setSession({
-                        access_token: adminSession.access_token,
-                        refresh_token: adminSession.refresh_token
-                    });
-                }
-                
                 fetchApprovals();
             }
         } catch (error: any) {
@@ -98,9 +99,9 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
         setConfirmDialog({
             isOpen: true,
             title: '¿RECHAZAR CLIENTE?',
-            message: 'El registro se eliminará de las peticiones permanentemente.',
+            message: 'El registro se eliminará permanentemente.',
             onConfirm: async () => {
-                await supabase.from('peticiones_acceso').delete().eq('id', id);
+                await supabase.from('profiles').delete().eq('id', id);
                 fetchApprovals();
             }
         });
@@ -165,12 +166,12 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
                 <div className="space-y-4">
                     {notifications.map((item) => {
                         
-                        if (item._type === 'petition' && item.tipo === 'nuevo_cliente') {
+                        if (item._type === 'new_client') {
                             return (
                                 <div key={`nc-${item.id}`} className="bg-zinc-950 border border-green-900/30 p-6 relative overflow-hidden shadow-lg">
                                     <div className="absolute top-0 left-0 w-1 h-full bg-green-500"></div>
                                     <p className="text-zinc-400 text-sm leading-relaxed">
-                                        <strong className="text-white uppercase">{item.trabajador?.rol}: {item.trabajador?.primer_nombre} {item.trabajador?.primer_apellido}</strong> registró un nuevo cliente en el sistema: <strong className="text-white uppercase">{item.temp_primer_nombre} {item.temp_primer_apellido}</strong> ({item.temp_cedula}).
+                                        <strong className="text-white uppercase">{item.creador?.rol}: {item.creador?.primer_nombre} {item.creador?.primer_apellido}</strong> registró un nuevo cliente en el sistema: <strong className="text-white uppercase">{item.primer_nombre} {item.primer_apellido}</strong> ({item.cedula}).
                                     </p>
                                     <div className="flex gap-6 mt-4">
                                         <button onClick={() => handleApproveClient(item)} className="text-[10px] font-bold uppercase tracking-widest text-green-500 hover:text-green-400 transition-colors">Aprobar Cliente</button>
@@ -195,7 +196,7 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
                             );
                         }
 
-                        if (item._type === 'petition' && item.tipo !== 'nuevo_cliente') {
+                        if (item._type === 'petition') {
                             const trabajador = item.trabajador; const cliente = item.cliente;
                             const tipoMsg = item.tipo === 'info_personal' ? 'INFORMACIÓN PERSONAL' : `ACCESO AL CASO: ${item.caso?.titulo}`;
                             return (
