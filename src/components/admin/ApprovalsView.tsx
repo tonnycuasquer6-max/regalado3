@@ -31,15 +31,12 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
     const fetchApprovals = async () => {
         setLoading(true);
         const { data: updatesData } = await supabase.from('case_updates').select(`id, created_at, estado_aprobacion, perfil:profiles!case_updates_perfil_id_fkey(primer_nombre, primer_apellido, rol), caso:cases!case_id(id, titulo, cliente:profiles!cliente_id(primer_nombre, primer_apellido))`).eq('estado_aprobacion', 'pendiente');
-        
-        // Obtenemos los perfiles creados por trabajadores (que están "pendientes")
-        const { data: pendingClientsData } = await supabase.from('profiles').select(`id, email, primer_nombre, primer_apellido, cedula, created_at, archivo_registro, creador:profiles!creado_por(primer_nombre, primer_apellido, rol)`).eq('categoria_usuario', 'cliente').eq('estado_aprobacion', 'pendiente');
-        
-        const { data: petitionsData } = await supabase.from('peticiones_acceso').select(`id, tipo, created_at, trabajador:profiles!peticiones_acceso_trabajador_id_fkey(primer_nombre, primer_apellido, rol), cliente:profiles!peticiones_acceso_cliente_id_fkey(primer_nombre, primer_apellido), caso:cases!peticiones_acceso_caso_id_fkey(id, titulo)`).eq('estado', 'pendiente');
+
+        // SOLUCIÓN: Agregamos trabajador_id a la consulta para asignarlo como creado_por luego
+        const { data: petitionsData } = await supabase.from('peticiones_acceso').select(`id, tipo, created_at, trabajador_id, temp_email, temp_password, temp_primer_nombre, temp_segundo_nombre, temp_primer_apellido, temp_segundo_apellido, temp_cedula, temp_foto_url, trabajador:profiles!peticiones_acceso_trabajador_id_fkey(primer_nombre, primer_apellido, rol), cliente:profiles!peticiones_acceso_cliente_id_fkey(primer_nombre, primer_apellido), caso:cases!peticiones_acceso_caso_id_fkey(id, titulo)`).eq('estado', 'pendiente');
 
         let combined: any[] = [];
         if (updatesData) combined = [...combined, ...updatesData.map(u => ({ ...u, _type: 'update' }))];
-        if (pendingClientsData) combined = [...combined, ...pendingClientsData.map(c => ({ ...c, _type: 'new_client' }))];
         if (petitionsData) combined = [...combined, ...petitionsData.map(p => ({ ...p, _type: 'petition' }))];
 
         combined.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
@@ -49,45 +46,41 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
 
     useEffect(() => { fetchApprovals(); }, []);
 
-    // SOLUCIÓN: Usamos un cliente secundario de Supabase para no tocar la sesión del Admin
     const handleApproveClient = async (item: any) => {
         try {
             const url = (supabase as any).supabaseUrl;
             const key = (supabase as any).supabaseKey;
             
-            // Creamos un cliente que NO GUARDA LA SESIÓN
             const tempClient = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });
 
-            // Usamos la contraseña temporal guardada en archivo_registro
             const { data: authData, error: authError } = await tempClient.auth.signUp({
-                email: item.email,
-                password: item.archivo_registro,
+                email: item.temp_email,
+                password: item.temp_password,
             });
 
             if (authError) throw authError;
 
             const userId = authData.user?.id;
             if (userId) {
-                // Borramos el perfil temporal
-                await supabase.from('profiles').delete().eq('id', item.id);
-                
-                // Creamos el perfil OFICIAL
-                const { error: profileError } = await supabase.from('profiles').insert({
+                // SOLUCIÓN: Usamos UPSERT. Si el trigger de la BD creó el perfil en blanco, esto lo reescribe con todos los datos.
+                const { error: profileError } = await supabase.from('profiles').upsert({
                     id: userId,
-                    email: item.email,
-                    primer_nombre: item.primer_nombre,
-                    segundo_nombre: item.segundo_nombre,
-                    primer_apellido: item.primer_apellido,
-                    segundo_apellido: item.segundo_apellido,
-                    cedula: item.cedula,
-                    foto_url: item.foto_url,
+                    email: item.temp_email,
+                    primer_nombre: item.temp_primer_nombre,
+                    segundo_nombre: item.temp_segundo_nombre,
+                    primer_apellido: item.temp_primer_apellido,
+                    segundo_apellido: item.temp_segundo_apellido,
+                    cedula: item.temp_cedula,
+                    foto_url: item.temp_foto_url,
                     rol: 'cliente',
                     categoria_usuario: 'cliente',
                     estado_aprobacion: 'aprobado',
-                    creado_por: item.creador?.id
+                    creado_por: item.trabajador_id
                 });
                 
                 if (profileError) throw profileError;
+                
+                await supabase.from('peticiones_acceso').delete().eq('id', item.id);
                 fetchApprovals();
             }
         } catch (error: any) {
@@ -99,9 +92,9 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
         setConfirmDialog({
             isOpen: true,
             title: '¿RECHAZAR CLIENTE?',
-            message: 'El registro se eliminará permanentemente.',
+            message: 'El registro se eliminará de las peticiones permanentemente.',
             onConfirm: async () => {
-                await supabase.from('profiles').delete().eq('id', id);
+                await supabase.from('peticiones_acceso').delete().eq('id', id);
                 fetchApprovals();
             }
         });
@@ -166,12 +159,12 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
                 <div className="space-y-4">
                     {notifications.map((item) => {
                         
-                        if (item._type === 'new_client') {
+                        if (item._type === 'petition' && item.tipo === 'nuevo_cliente') {
                             return (
                                 <div key={`nc-${item.id}`} className="bg-zinc-950 border border-green-900/30 p-6 relative overflow-hidden shadow-lg">
                                     <div className="absolute top-0 left-0 w-1 h-full bg-green-500"></div>
                                     <p className="text-zinc-400 text-sm leading-relaxed">
-                                        <strong className="text-white uppercase">{item.creador?.rol}: {item.creador?.primer_nombre} {item.creador?.primer_apellido}</strong> registró un nuevo cliente en el sistema: <strong className="text-white uppercase">{item.primer_nombre} {item.primer_apellido}</strong> ({item.cedula}).
+                                        <strong className="text-white uppercase">{item.trabajador?.rol}: {item.trabajador?.primer_nombre} {item.trabajador?.primer_apellido}</strong> registró un nuevo cliente en el sistema: <strong className="text-white uppercase">{item.temp_primer_nombre} {item.temp_primer_apellido}</strong> ({item.temp_cedula}).
                                     </p>
                                     <div className="flex gap-6 mt-4">
                                         <button onClick={() => handleApproveClient(item)} className="text-[10px] font-bold uppercase tracking-widest text-green-500 hover:text-green-400 transition-colors">Aprobar Cliente</button>
@@ -196,7 +189,7 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
                             );
                         }
 
-                        if (item._type === 'petition') {
+                        if (item._type === 'petition' && item.tipo !== 'nuevo_cliente') {
                             const trabajador = item.trabajador; const cliente = item.cliente;
                             const tipoMsg = item.tipo === 'info_personal' ? 'INFORMACIÓN PERSONAL' : `ACCESO AL CASO: ${item.caso?.titulo}`;
                             return (
