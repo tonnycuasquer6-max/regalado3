@@ -4,9 +4,9 @@ import { supabase } from '../../services/supabaseClient';
 
 // Vistas compartidas
 import TimeBillingMaestro from '../admin/TimeBillingMaestro';
+import CaseView from '../CaseView';
 import ExpensesView from './ExpensesView';
 
-// --- Iconos ---
 const BellIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" /></svg>;
 const LockIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 inline-block mr-2 text-red-500"><path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" /></svg>;
 const UnlockIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 inline-block mr-2 text-green-500"><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 10.5V6.75a4.5 4.5 0 119 0v3.75M3.75 21.75h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" /></svg>;
@@ -40,6 +40,7 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [formStep, setFormStep] = useState(1);
     const [imagePreview, setImagePreview] = useState<string | null>(null);
+    const [imageFile, setImageFile] = useState<File | null>(null);
     const [newClientData, setNewClientData] = useState({ primer_nombre: '', segundo_nombre: '', primer_apellido: '', segundo_apellido: '', cedula: '', email: '' });
     const [clientPassword, setClientPassword] = useState('');
     const photoInputRef = useRef<HTMLInputElement>(null);
@@ -49,7 +50,7 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
     const [caseUpdates, setCaseUpdates] = useState<any[]>([]);
     const [updateDesc, setUpdateDesc] = useState('');
     const [uploadFile, setUploadFile] = useState<File | null>(null);
-    const [editingUpdate, setEditingUpdate] = useState<any | null>(null);
+    const [editingUpdate, setEditingUpdate] = useState<any | null>(null); 
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const fetchData = useCallback(async () => {
@@ -86,28 +87,45 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
         setActionLoading(false);
     };
 
+    // SOLUCIÓN: Crear cliente como una petición para que el admin lo valide y lo inserte en auth
     const handleCreateClient = async (e: React.FormEvent) => {
         e.preventDefault();
         setActionLoading(true);
-        
-        // SOLUCIÓN AL ERROR DE ID NULO: 
-        const newId = crypto.randomUUID();
 
-        const { error } = await supabase.from('profiles').insert({
-            id: newId,
-            ...newClientData,
-            rol: 'cliente',
-            categoria_usuario: 'cliente',
-            estado_aprobacion: 'pendiente',
-            creado_por: session.user.id
+        let final_photo_url = null;
+        if (imageFile) {
+            const filePath = `profile_pics/${Date.now()}_${imageFile.name}`;
+            const { error: uploadError } = await supabase.storage.from('profiles').upload(filePath, imageFile);
+            if (!uploadError) {
+                const { data } = supabase.storage.from('profiles').getPublicUrl(filePath);
+                final_photo_url = data.publicUrl;
+            }
+        }
+
+        const { error } = await supabase.from('peticiones_acceso').insert({
+            trabajador_id: session.user.id,
+            tipo: 'nuevo_cliente',
+            estado: 'pendiente',
+            temp_email: newClientData.email,
+            temp_password: clientPassword,
+            temp_primer_nombre: newClientData.primer_nombre,
+            temp_segundo_nombre: newClientData.segundo_nombre,
+            temp_primer_apellido: newClientData.primer_apellido,
+            temp_segundo_apellido: newClientData.segundo_apellido,
+            temp_cedula: newClientData.cedula,
+            temp_foto_url: final_photo_url
         });
-        if (error) alert(`Error al crear cliente: ${error.message}`);
-        else {
+
+        if (error) {
+            alert(`Error al enviar a revisión: ${error.message}`);
+        } else {
             setIsCreateModalOpen(false);
             setFormStep(1);
             setImagePreview(null);
+            setImageFile(null);
             setNewClientData({ primer_nombre: '', segundo_nombre: '', primer_apellido: '', segundo_apellido: '', cedula: '', email: '' });
             setClientPassword('');
+            alert('Cliente enviado a revisión exitosamente.');
             await fetchData();
         }
         setActionLoading(false);
@@ -115,6 +133,7 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
 
     const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
+            setImageFile(e.target.files[0]);
             setImagePreview(URL.createObjectURL(e.target.files[0]));
         }
     };
@@ -150,6 +169,9 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
 
     if (loading) return <div className="text-center p-12 text-zinc-500 animate-pulse">Cargando base de datos segura...</div>;
 
+    // Buscamos las peticiones de nuevo cliente pendientes de este trabajador para mostrarlas en la lista
+    const pendingNewClients = petitions.filter(p => p.tipo === 'nuevo_cliente' && p.estado === 'pendiente');
+
     return (
         <div className="animate-in fade-in duration-500">
             <div className="flex justify-between items-center mb-8 border-b border-zinc-900 pb-4">
@@ -164,24 +186,36 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {clients.length === 0 && <p className="text-zinc-500 text-sm">No hay clientes registrados en el sistema.</p>}
+                {/* Mostramos los clientes que el trabajador mandó a crear y están pendientes */}
+                {pendingNewClients.map(pet => (
+                    <div key={pet.id} className="bg-black border border-zinc-800 p-6 flex flex-col relative overflow-hidden opacity-50 grayscale">
+                        <div className="absolute top-4 right-4 bg-yellow-900/50 text-yellow-500 border border-yellow-900 px-3 py-1 text-[8px] font-black uppercase tracking-widest">
+                            En Revisión de Admin
+                        </div>
+                        <div className="flex justify-between items-start mb-6">
+                            <div>
+                                <h3 className="text-xl font-bold uppercase tracking-widest text-white flex items-center gap-2">
+                                    <LockIcon />
+                                    {pet.temp_primer_nombre} {pet.temp_primer_apellido}
+                                </h3>
+                                <p className="text-zinc-500 text-xs font-mono mt-1">
+                                    {pet.temp_cedula} | {pet.temp_email}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                ))}
+
+                {clients.length === 0 && pendingNewClients.length === 0 && <p className="text-zinc-500 text-sm">No hay clientes registrados en el sistema.</p>}
+                
                 {clients.map(client => {
                     const infoPet = petitions.find(p => p.cliente_id === client.id && p.tipo === 'info_personal');
                     const autoClientAccess = assignedClients.includes(client.id);
                     const hasInfoAccess = autoClientAccess || infoPet?.estado === 'aprobado';
-                    const isPendingClient = client.estado_aprobacion === 'pendiente';
                     const clientCases = cases.filter(c => c.cliente_id === client.id);
 
-                    if (isPendingClient && client.creado_por !== session.user.id) return null;
-
                     return (
-                        <div key={client.id} className={`bg-black border border-zinc-800 p-6 flex flex-col relative overflow-hidden transition-all ${isPendingClient ? 'opacity-50 grayscale' : ''}`}>
-                            {isPendingClient && (
-                                <div className="absolute top-4 right-4 bg-yellow-900/50 text-yellow-500 border border-yellow-900 px-3 py-1 text-[8px] font-black uppercase tracking-widest">
-                                    En Revisión de Admin
-                                </div>
-                            )}
-
+                        <div key={client.id} className="bg-black border border-zinc-800 p-6 flex flex-col relative overflow-hidden transition-all">
                             <div className="flex justify-between items-start mb-6">
                                 <div>
                                     <h3 className="text-xl font-bold uppercase tracking-widest text-white flex items-center gap-2">
@@ -193,7 +227,7 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
                                     </p>
                                 </div>
                                 
-                                {!hasInfoAccess && !isPendingClient && (
+                                {!hasInfoAccess && (
                                     <div>
                                         {infoPet?.estado === 'pendiente' ? (
                                             <span className="text-yellow-500 text-[10px] font-bold uppercase tracking-widest border border-yellow-900 px-3 py-2">⏳ Revisando</span>
@@ -208,7 +242,6 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
                                 )}
                             </div>
 
-                            {/* Casos del Cliente visibles si tiene acceso */}
                             {hasInfoAccess && (
                                 <div className="border-t border-zinc-900 pt-4 flex-grow">
                                     <h4 className="text-[10px] text-zinc-500 font-black uppercase tracking-[0.3em] mb-4">Casos Vinculados</h4>
@@ -229,7 +262,7 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
                                                         </div>
                                                         <div>
                                                             {hasCaseAccess ? (
-                                                                <button onClick={() => openCaseHistory(c)} className="text-green-500 hover:text-green-400 text-[10px] font-bold uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-all border border-green-900/50 px-3 py-1">
+                                                                <button onClick={() => openCaseHistory(c)} className="text-green-500 hover:text-green-400 text-[10px] font-bold uppercase tracking-widest transition-colors border border-green-900/50 px-3 py-1">
                                                                     Abrir Caso ›
                                                                 </button>
                                                             ) : (
@@ -251,7 +284,6 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
                 })}
             </div>
 
-            {/* FORMULARIO DE CLIENTE */}
             <Modal isOpen={isCreateModalOpen} onClose={() => setIsCreateModalOpen(false)}>
                 <form onSubmit={handleCreateClient} className="bg-black w-full text-white font-mono flex flex-col max-h-[85vh]">
                     
@@ -311,13 +343,6 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
                                 <div>
                                     <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">CONTRASEÑA PROVISIONAL</label>
                                     <input type="password" required value={clientPassword} onChange={e => setClientPassword(e.target.value)} className="w-full bg-transparent border-b border-zinc-800 text-white py-1 focus:outline-none focus:border-zinc-500" />
-                                    <div className="mt-4 p-4 border border-zinc-900 bg-zinc-950/50">
-                                        <p className="text-[10px] text-zinc-600 mb-2">✓ 8-20 caracteres</p>
-                                        <p className="text-[10px] text-zinc-600 mb-2">✓ Mayúsculas</p>
-                                        <p className="text-[10px] text-zinc-600 mb-2">✓ Minúsculas</p>
-                                        <p className="text-[10px] text-zinc-600 mb-2">✓ Números</p>
-                                        <p className="text-[10px] text-zinc-600">✓ Especial</p>
-                                    </div>
                                 </div>
                             </div>
                         )}
@@ -353,6 +378,7 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
                                     
                                     <div className="flex justify-between items-start">
                                         <p className="text-[10px] text-zinc-600 font-mono mb-1">{new Date(u.created_at).toLocaleString()}</p>
+                                        
                                         {u.estado_aprobacion === 'rechazado' && (
                                             <button type="button" onClick={() => { setEditingUpdate(u); setUpdateDesc(u.descripcion); }} className="text-zinc-600 hover:text-white transition-colors opacity-0 group-hover/item:opacity-100" title="Editar y reenviar"><PencilIcon /></button>
                                         )}
@@ -594,7 +620,7 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
                         <button
                             key={item.id}
                             onClick={() => handleMenuClick(item.id)}
-                            className={`text-lg uppercase font-black tracking-[0.2em] transition-colors ${activeView === item.id ? 'text-white' : 'text-zinc-600 hover:text-zinc-300'}`}
+                            className={`text-lg lg:text-xl uppercase font-black tracking-[0.2em] transition-colors ${activeView === item.id ? 'text-white' : 'text-zinc-600 hover:text-zinc-300'}`}
                         >
                             {item.label}
                         </button>

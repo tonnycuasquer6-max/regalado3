@@ -26,19 +26,13 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
 
     const fetchApprovals = async () => {
         setLoading(true);
-        // 1. Archivos Subidos
         const { data: updatesData } = await supabase.from('case_updates').select(`id, created_at, estado_aprobacion, perfil:profiles!case_updates_perfil_id_fkey(primer_nombre, primer_apellido, rol), caso:cases!case_id(id, titulo, cliente:profiles!cliente_id(primer_nombre, primer_apellido))`).eq('estado_aprobacion', 'pendiente');
 
-        // 2. Peticiones de Censura
-        const { data: petitionsData } = await supabase.from('peticiones_acceso').select(`id, tipo, created_at, trabajador:profiles!peticiones_acceso_trabajador_id_fkey(primer_nombre, primer_apellido, rol), cliente:profiles!peticiones_acceso_cliente_id_fkey(primer_nombre, primer_apellido), caso:cases!peticiones_acceso_caso_id_fkey(id, titulo)`).eq('estado', 'pendiente');
-
-        // 3. NUEVO: Clientes Creados por Trabajadores en Standby
-        const { data: pendingClientsData } = await supabase.from('profiles').select(`id, primer_nombre, primer_apellido, cedula, email, created_at, creador:profiles!creado_por(primer_nombre, primer_apellido, rol)`).eq('categoria_usuario', 'cliente').eq('estado_aprobacion', 'pendiente');
+        const { data: petitionsData } = await supabase.from('peticiones_acceso').select(`id, tipo, created_at, temp_email, temp_password, temp_primer_nombre, temp_segundo_nombre, temp_primer_apellido, temp_segundo_apellido, temp_cedula, temp_foto_url, trabajador:profiles!peticiones_acceso_trabajador_id_fkey(primer_nombre, primer_apellido, rol), cliente:profiles!peticiones_acceso_cliente_id_fkey(primer_nombre, primer_apellido), caso:cases!peticiones_acceso_caso_id_fkey(id, titulo)`).eq('estado', 'pendiente');
 
         let combined: any[] = [];
         if (updatesData) combined = [...combined, ...updatesData.map(u => ({ ...u, _type: 'update' }))];
         if (petitionsData) combined = [...combined, ...petitionsData.map(p => ({ ...p, _type: 'petition' }))];
-        if (pendingClientsData) combined = [...combined, ...pendingClientsData.map(c => ({ ...c, _type: 'new_client' }))];
 
         combined.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
         setNotifications(combined);
@@ -47,14 +41,47 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
 
     useEffect(() => { fetchApprovals(); }, []);
 
-    // --- NUEVOS CLIENTES ---
-    const handleApproveClient = async (id: string) => {
-        await supabase.from('profiles').update({ estado_aprobacion: 'aprobado' }).eq('id', id);
-        fetchApprovals();
+    // --- SOLUCIÓN: LÓGICA PARA APROBAR UN CLIENTE NUEVO ---
+    const handleApproveClient = async (item: any) => {
+        try {
+            // 1. Crear el usuario en Auth para que tenga un ID válido
+            const { data: authData, error: authError } = await supabase.auth.signUp({
+                email: item.temp_email,
+                password: item.temp_password,
+            });
+
+            if (authError) throw authError;
+
+            // 2. Insertarlo oficialmente en perfiles (Ya no da error porque Auth le dio ID)
+            const userId = authData.user?.id;
+            if (userId) {
+                const { error: profileError } = await supabase.from('profiles').insert({
+                    id: userId,
+                    email: item.temp_email,
+                    primer_nombre: item.temp_primer_nombre,
+                    segundo_nombre: item.temp_segundo_nombre,
+                    primer_apellido: item.temp_primer_apellido,
+                    segundo_apellido: item.temp_segundo_apellido,
+                    cedula: item.temp_cedula,
+                    foto_url: item.temp_foto_url,
+                    rol: 'cliente',
+                    categoria_usuario: 'cliente',
+                    estado_aprobacion: 'aprobado'
+                });
+                if (profileError) throw profileError;
+                
+                // 3. Borrar la petición pendiente
+                await supabase.from('peticiones_acceso').delete().eq('id', item.id);
+                fetchApprovals();
+            }
+        } catch (error: any) {
+            alert(`Error al aprobar cliente: ${error.message}`);
+        }
     };
+
     const handleRejectClient = async (id: string) => {
         if(window.confirm("¿Rechazar y eliminar permanentemente este registro de cliente?")) {
-            await supabase.from('profiles').delete().eq('id', id);
+            await supabase.from('peticiones_acceso').delete().eq('id', id);
             fetchApprovals();
         }
     };
@@ -95,23 +122,7 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
                 <div className="space-y-4">
                     {notifications.map((item) => {
                         
-                        // 1. NUEVO CLIENTE CREADO POR TRABAJADOR
-                        if (item._type === 'new_client') {
-                            return (
-                                <div key={`nc-${item.id}`} className="bg-zinc-950 border border-green-900/30 p-6 relative overflow-hidden shadow-lg">
-                                    <div className="absolute top-0 left-0 w-1 h-full bg-green-500"></div>
-                                    <p className="text-zinc-400 text-sm leading-relaxed">
-                                        <strong className="text-white uppercase">{item.creador?.rol}: {item.creador?.primer_nombre} {item.creador?.primer_apellido}</strong> registró un nuevo cliente en el sistema: <strong className="text-white uppercase">{item.primer_nombre} {item.primer_apellido}</strong> ({item.cedula}).
-                                    </p>
-                                    <div className="flex gap-6 mt-4">
-                                        <button onClick={() => handleApproveClient(item.id)} className="text-[10px] font-bold uppercase tracking-widest text-green-500 hover:text-green-400 transition-colors">Aprobar Cliente</button>
-                                        <button onClick={() => handleRejectClient(item.id)} className="text-[10px] font-bold uppercase tracking-widest text-red-500 hover:text-red-400 transition-colors">Rechazar / Borrar</button>
-                                    </div>
-                                </div>
-                            );
-                        }
-
-                        // 2. ARCHIVO SUBIDO
+                        // RENDERIZAR NOTIFICACIÓN DE ARCHIVO SUBIDO
                         if (item._type === 'update') {
                             const trabajador = item.perfil; const caso = item.caso; const cliente = caso?.cliente;
                             return (
@@ -127,9 +138,27 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
                             );
                         }
 
-                        // 3. PETICIÓN DE CENSURA
+                        // RENDERIZAR NOTIFICACIÓN DE PETICIÓN
                         if (item._type === 'petition') {
                             const trabajador = item.trabajador; const cliente = item.cliente;
+                            
+                            // SI ES UN NUEVO CLIENTE (LA SOLUCIÓN AL PROBLEMA)
+                            if (item.tipo === 'nuevo_cliente') {
+                                return (
+                                    <div key={`nc-${item.id}`} className="bg-zinc-950 border border-green-900/30 p-6 relative overflow-hidden shadow-lg">
+                                        <div className="absolute top-0 left-0 w-1 h-full bg-green-500"></div>
+                                        <p className="text-zinc-400 text-sm leading-relaxed">
+                                            <strong className="text-white uppercase">{trabajador?.rol}: {trabajador?.primer_nombre} {trabajador?.primer_apellido}</strong> registró un nuevo cliente en el sistema: <strong className="text-white uppercase">{item.temp_primer_nombre} {item.temp_primer_apellido}</strong> ({item.temp_cedula}).
+                                        </p>
+                                        <div className="flex gap-6 mt-4">
+                                            <button onClick={() => handleApproveClient(item)} className="text-[10px] font-bold uppercase tracking-widest text-green-500 hover:text-green-400 transition-colors">Aprobar Cliente</button>
+                                            <button onClick={() => handleRejectClient(item.id)} className="text-[10px] font-bold uppercase tracking-widest text-red-500 hover:text-red-400 transition-colors">Rechazar / Borrar</button>
+                                        </div>
+                                    </div>
+                                );
+                            }
+
+                            // SI ES PETICIÓN DE CENSURA NORMAL
                             const tipoMsg = item.tipo === 'info_personal' ? 'INFORMACIÓN PERSONAL' : `ACCESO AL CASO: ${item.caso?.titulo}`;
                             return (
                                 <div key={`pet-${item.id}`} className="bg-zinc-950 border border-blue-900/30 p-6 relative overflow-hidden shadow-lg">
@@ -158,6 +187,7 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
                             </button>
                             <h2 className="text-lg font-bold italic tracking-widest uppercase text-white">PANEL DE REVISIÓN: {activeCaseHistory.titulo}</h2>
                         </div>
+                        
                         <div className={`p-6 flex-grow bg-black space-y-8 ${scrollbarStyle}`}>
                             {caseUpdates.map((u) => {
                                 const isPending = u.estado_aprobacion === 'pendiente';
