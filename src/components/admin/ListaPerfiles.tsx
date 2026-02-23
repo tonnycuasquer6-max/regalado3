@@ -80,17 +80,28 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
 
     const handleUpdateProfile = async (e: React.FormEvent) => { e.preventDefault(); if (!profileToEdit) return; setActionLoading(true); const { data } = await supabase.from('profiles').update(editFormData).eq('id', profileToEdit.id).select().single(); if (data) { setProfiles(prev => prev.map(p => (p.id === data.id ? data : p))); setProfileToEdit(null); } setActionLoading(false); };
     
+    // --- SOLUCIÓN: Limpieza profunda antes de borrar el perfil ---
     const handleDeleteProfile = async () => { 
         if (!profileToDelete) return; 
         setConfirmDialog({
             isOpen: true,
             title: '¿ELIMINAR PERFIL?',
-            message: 'Esta acción no se puede deshacer.',
+            message: 'Esta acción no se puede deshacer. Se borrarán sus asignaciones y horas registradas.',
             onConfirm: async () => {
                 setActionLoading(true); 
+                
+                // Limpiamos los rastros del abogado en otras tablas para que no haya conflicto (Foreign Key)
+                await supabase.from('asignaciones_casos').delete().eq('abogado_id', profileToDelete.id);
+                await supabase.from('peticiones_acceso').delete().eq('trabajador_id', profileToDelete.id);
+                await supabase.from('time_entries').delete().eq('perfil_id', profileToDelete.id);
+
                 const { error } = await supabase.from('profiles').delete().eq('id', profileToDelete.id); 
-                if (error) alert(`No se puede eliminar: El perfil aún tiene casos vinculados.`);
-                else setProfiles(prev => prev.filter(p => p.id !== profileToDelete.id)); 
+                if (error) {
+                    alert(`No se pudo eliminar del todo porque el trabajador subió documentos al sistema en el pasado. Su acceso fue revocado.`);
+                } else { 
+                    setProfiles(prev => prev.filter(p => p.id !== profileToDelete.id)); 
+                }
+                
                 setProfileToDelete(null); 
                 setActionLoading(false); 
             }
@@ -309,7 +320,6 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
         });
     };
 
-    // SOLUCIÓN: Agrupación segura para evitar el error de pantalla negra por cliente nulo
     const groupedPermissions = activePermissions.reduce((acc, perm) => {
         if (!perm.cliente_id) return acc; 
         

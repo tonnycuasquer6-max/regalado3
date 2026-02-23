@@ -10,7 +10,13 @@ const getStartOfWeek = (date: Date) => {
   return new Date(d.setDate(diff));
 };
 
-const toYYYYMMDD = (date: Date) => date.toISOString().split('T')[0];
+// SOLUCIÓN: Formateador estricto a tiempo LOCAL para evitar el salto de día UTC
+const toYYYYMMDD = (date: Date) => {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+};
 
 const InputField = ({ label, type = 'text', ...props }: any) => (
     <div>
@@ -77,7 +83,6 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
     } catch (err) { return null; } finally { setLoading(false); }
   }, []);
 
-  // FILTRADO DE TAREAS PARA TRABAJADORES (Punto 4)
   const fetchWeekEntries = useCallback(async (profile: any) => {
     if (!profile) return;
     const startOfWeek = getStartOfWeek(currentDate);
@@ -86,7 +91,6 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
 
     let query = supabase.from('time_entries').select('*, profiles(*), cases(*)').gte('fecha_tarea', toYYYYMMDD(startOfWeek)).lte('fecha_tarea', toYYYYMMDD(endOfWeek));
     
-    // Si no es admin, solo trae sus propias horas
     if (profile.rol !== 'admin') {
         query = query.eq('perfil_id', profile.id);
     }
@@ -158,8 +162,11 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
     } catch (error: any) { alert(`Error al guardar: ${error.message}`); } finally { setActionLoading(false); }
   };
 
+  // SOLUCIÓN: Fijar el ID en una variable antes de lanzar el popup para no perderlo al borrar
   const handleDeleteEntry = () => {
     if (!editingEntry) return;
+    const idToDelete = editingEntry.id;
+
     setConfirmDialog({
         isOpen: true,
         title: '¿ELIMINAR REGISTRO?',
@@ -167,11 +174,16 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
         onConfirm: async () => {
             setActionLoading(true);
             try {
-                const { error } = await supabase.from('time_entries').delete().eq('id', editingEntry.id);
+                const { error } = await supabase.from('time_entries').delete().eq('id', idToDelete);
                 if (error) throw error;
                 setIsModalOpen(false);
+                setEditingEntry(null);
                 await fetchWeekEntries(currentUserProfile);
-            } catch (error: any) { alert(`Error al eliminar: ${error.message}`); } finally { setActionLoading(false); }
+            } catch (error: any) { 
+                alert(`Error al eliminar en DB: ${error.message}`); 
+            } finally { 
+                setActionLoading(false); 
+            }
         }
     });
   };
