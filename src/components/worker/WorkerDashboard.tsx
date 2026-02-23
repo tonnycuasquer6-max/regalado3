@@ -14,6 +14,7 @@ const UserIcon = ({ className = "w-5 h-5" }) => <svg xmlns="http://www.w3.org/20
 const DocumentIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 inline-block mr-1"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>;
 const PaperClipIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 pointer-events-none"><path strokeLinecap="round" strokeLinejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" /></svg>;
 const PencilIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 pointer-events-none"><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" /></svg>;
+const MenuIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" /></svg>;
 
 const scrollbarStyle = "overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-zinc-800 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-zinc-700 transition-colors";
 
@@ -48,7 +49,7 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
     const [caseUpdates, setCaseUpdates] = useState<any[]>([]);
     const [updateDesc, setUpdateDesc] = useState('');
     const [uploadFile, setUploadFile] = useState<File | null>(null);
-    const [editingUpdate, setEditingUpdate] = useState<any | null>(null); // Para editar si fue rechazado
+    const [editingUpdate, setEditingUpdate] = useState<any | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const fetchData = useCallback(async () => {
@@ -88,19 +89,25 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
     const handleCreateClient = async (e: React.FormEvent) => {
         e.preventDefault();
         setActionLoading(true);
+        
+        // SOLUCIÓN AL ERROR DE ID NULO: 
+        const newId = crypto.randomUUID();
+
         const { error } = await supabase.from('profiles').insert({
+            id: newId,
             ...newClientData,
             rol: 'cliente',
             categoria_usuario: 'cliente',
             estado_aprobacion: 'pendiente',
             creado_por: session.user.id
         });
-        if (error) alert(error.message);
+        if (error) alert(`Error al crear cliente: ${error.message}`);
         else {
             setIsCreateModalOpen(false);
             setFormStep(1);
             setImagePreview(null);
             setNewClientData({ primer_nombre: '', segundo_nombre: '', primer_apellido: '', segundo_apellido: '', cedula: '', email: '' });
+            setClientPassword('');
             await fetchData();
         }
         setActionLoading(false);
@@ -165,11 +172,13 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
                     const isPendingClient = client.estado_aprobacion === 'pendiente';
                     const clientCases = cases.filter(c => c.cliente_id === client.id);
 
+                    if (isPendingClient && client.creado_por !== session.user.id) return null;
+
                     return (
                         <div key={client.id} className={`bg-black border border-zinc-800 p-6 flex flex-col relative overflow-hidden transition-all ${isPendingClient ? 'opacity-50 grayscale' : ''}`}>
                             {isPendingClient && (
                                 <div className="absolute top-4 right-4 bg-yellow-900/50 text-yellow-500 border border-yellow-900 px-3 py-1 text-[8px] font-black uppercase tracking-widest">
-                                    En Revisión
+                                    En Revisión de Admin
                                 </div>
                             )}
 
@@ -199,7 +208,7 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
                                 )}
                             </div>
 
-                            {/* SOLUCIÓN 1: Casos Vinculados Restaurados */}
+                            {/* Casos del Cliente visibles si tiene acceso */}
                             {hasInfoAccess && (
                                 <div className="border-t border-zinc-900 pt-4 flex-grow">
                                     <h4 className="text-[10px] text-zinc-500 font-black uppercase tracking-[0.3em] mb-4">Casos Vinculados</h4>
@@ -242,7 +251,7 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
                 })}
             </div>
 
-            {/* FORMULARIO DE CLIENTE (2 PASOS, SCROLL, SIN CANCELAR, CON FOTO Y SIN EMAIL EN PASO 1) */}
+            {/* FORMULARIO DE CLIENTE */}
             <Modal isOpen={isCreateModalOpen} onClose={() => setIsCreateModalOpen(false)}>
                 <form onSubmit={handleCreateClient} className="bg-black w-full text-white font-mono flex flex-col max-h-[85vh]">
                     
@@ -327,7 +336,7 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
                 </form>
             </Modal>
 
-            {/* MODAL HISTORIAL DEL CASO (Para registrar y editar) */}
+            {/* MODAL HISTORIAL DEL CASO */}
             <Modal isOpen={!!activeCaseHistory} onClose={() => { setActiveCaseHistory(null); setEditingUpdate(null); setUpdateDesc(''); }}>
                 {activeCaseHistory && (
                     <div className="flex flex-col h-[85vh]">
@@ -344,8 +353,6 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
                                     
                                     <div className="flex justify-between items-start">
                                         <p className="text-[10px] text-zinc-600 font-mono mb-1">{new Date(u.created_at).toLocaleString()}</p>
-                                        
-                                        {/* SOLUCIÓN LÁPIZ: Si el admin lo rechaza, el trabajador puede editarlo */}
                                         {u.estado_aprobacion === 'rechazado' && (
                                             <button type="button" onClick={() => { setEditingUpdate(u); setUpdateDesc(u.descripcion); }} className="text-zinc-600 hover:text-white transition-colors opacity-0 group-hover/item:opacity-100" title="Editar y reenviar"><PencilIcon /></button>
                                         )}
@@ -385,7 +392,7 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
 };
 
 // ==========================================
-// VISTA 2: CASOS ASIGNADOS (CASCADA)
+// VISTA 2: CASOS ASIGNADOS
 // ==========================================
 const WorkerAssignedCasesView: React.FC<{ session: Session }> = ({ session }) => {
     const [assignedClientsDict, setAssignedClientsDict] = useState<{ [key: string]: { client: any, cases: any[] } }>({});
@@ -488,7 +495,6 @@ const WorkerAssignedCasesView: React.FC<{ session: Session }> = ({ session }) =>
                 </div>
             )}
 
-            {/* EL MODAL DE HISTORIAL DEL CASO ES COMPARTIDO ENTRE AMBAS VISTAS */}
             <Modal isOpen={!!activeCaseHistory} onClose={() => { setActiveCaseHistory(null); setEditingUpdate(null); setUpdateDesc(''); }}>
                 {activeCaseHistory && (
                     <div className="flex flex-col h-[85vh]">
@@ -549,10 +555,11 @@ const WorkerAssignedCasesView: React.FC<{ session: Session }> = ({ session }) =>
 const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
     const [activeView, setActiveView] = useState('HOME');
     const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+    const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-    // SOLUCIÓN: El menú se oculta al seleccionar una opción
     const handleMenuClick = (view: string) => {
         setActiveView(view);
+        setMobileMenuOpen(false);
         setProfileMenuOpen(false); 
     };
 
@@ -570,7 +577,10 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
         <div className="bg-black min-h-screen text-white flex flex-col font-mono relative">
             
             <header className="flex justify-between items-center p-6 bg-black sticky top-0 z-50">
-                <div className="font-black text-2xl tracking-[0.3em] cursor-pointer hover:text-zinc-300 transition-colors w-32" onClick={() => handleMenuClick('HOME')}>
+                <button onClick={() => setMobileMenuOpen(true)} className="md:hidden text-zinc-400 hover:text-white">
+                    <MenuIcon />
+                </button>
+                <div className="font-black text-2xl tracking-[0.3em] cursor-pointer hover:text-zinc-300 transition-colors hidden md:block w-32" onClick={() => handleMenuClick('HOME')}>
                     R&R
                 </div>
                 
@@ -584,7 +594,7 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
                         <button
                             key={item.id}
                             onClick={() => handleMenuClick(item.id)}
-                            className={`text-lg lg:text-xl uppercase font-black tracking-[0.2em] transition-colors ${activeView === item.id ? 'text-white' : 'text-zinc-600 hover:text-zinc-300'}`}
+                            className={`text-lg uppercase font-black tracking-[0.2em] transition-colors ${activeView === item.id ? 'text-white' : 'text-zinc-600 hover:text-zinc-300'}`}
                         >
                             {item.label}
                         </button>
@@ -602,7 +612,6 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
                             <UserIcon className="w-6 h-6 text-zinc-400 pointer-events-none" />
                         </button>
 
-                        {/* SOLUCIÓN: Backdrop que captura clics y cierra el menú */}
                         {profileMenuOpen && (
                             <>
                                 <div className="fixed inset-0 z-40" onClick={() => setProfileMenuOpen(false)}></div>
@@ -623,6 +632,28 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
                     </div>
                 </div>
             </header>
+
+            {mobileMenuOpen && (
+                <div className="fixed inset-0 bg-black z-[100] flex flex-col font-mono p-6">
+                    <div className="flex justify-between items-center mb-12">
+                        <div className="font-black text-2xl tracking-[0.3em]">R&R</div>
+                        <button onClick={() => setMobileMenuOpen(false)} className="text-zinc-500 hover:text-white">CERRAR</button>
+                    </div>
+                    <div className="flex flex-col gap-8 text-left">
+                        {[
+                            { id: 'HOME', label: 'Inicio' },
+                            { id: 'CLIENTS', label: 'Clientes' },
+                            { id: 'ASSIGNED_CASES', label: 'Casos Asignados' },
+                            { id: 'TIME_BILLING', label: 'Time Billing' },
+                            { id: 'EXPENSES', label: 'Gastos' }
+                        ].map(item => (
+                            <button key={item.id} onClick={() => handleMenuClick(item.id)} className={`text-2xl font-black uppercase tracking-[0.2em] text-left ${activeView === item.id ? 'text-white' : 'text-zinc-600'}`}>
+                                {item.label}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             <main className="flex-grow flex flex-col relative">
                 {activeView === 'HOME' ? (

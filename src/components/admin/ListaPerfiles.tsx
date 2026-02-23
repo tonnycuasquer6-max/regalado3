@@ -19,7 +19,7 @@ interface CaseUpdate { id: string; created_at: string; descripcion: string; file
 
 const Modal: React.FC<{ isOpen: boolean; onClose: () => void; children: React.ReactNode }> = ({ isOpen, onClose, children }) => {
     if (!isOpen) return null;
-    return <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4 font-mono"><div className="bg-black border border-zinc-800 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">{children}</div></div>;
+    return <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4 font-mono"><div className="bg-black border border-zinc-800 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] relative">{children}</div></div>;
 };
 
 const InputField: React.FC<{ label: string, value: string, onChange: (e: any) => void, type?: string, required?: boolean }> = ({ label, value, onChange, type = 'text', required }) => (
@@ -62,7 +62,6 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
     const [assignedClientsDict, setAssignedClientsDict] = useState<{ [key: string]: { client: Profile, cases: Case[] } }>({});
     const [expandedClientId, setExpandedClientId] = useState<string | null>(null);
 
-    // NUEVO: Ver permisos de censura
     const [viewPermissionsProfile, setViewPermissionsProfile] = useState<Profile | null>(null);
     const [activePermissions, setActivePermissions] = useState<any[]>([]);
 
@@ -73,7 +72,6 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
     const fetchProfiles = useCallback(async () => {
         setLoading(true);
         const { data } = await supabase.from('profiles').select('*').eq('categoria_usuario', role);
-        // Filtramos para que aquí no salgan los que están pendientes (esos se ven en Aprobaciones)
         setProfiles(data ? data.filter(p => p.estado_aprobacion !== 'pendiente') : []);
         setLoading(false);
     }, [role]);
@@ -84,15 +82,19 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
     
     const handleDeleteProfile = async () => { 
         if (!profileToDelete) return; 
-        setActionLoading(true); 
-        const { error } = await supabase.from('profiles').delete().eq('id', profileToDelete.id); 
-        if (error) {
-            alert(`No se puede eliminar: El perfil aún tiene casos vinculados.`);
-        } else {
-            setProfiles(prev => prev.filter(p => p.id !== profileToDelete.id)); 
-        }
-        setProfileToDelete(null); 
-        setActionLoading(false); 
+        setConfirmDialog({
+            isOpen: true,
+            title: '¿ELIMINAR PERFIL?',
+            message: 'Esta acción no se puede deshacer.',
+            onConfirm: async () => {
+                setActionLoading(true); 
+                const { error } = await supabase.from('profiles').delete().eq('id', profileToDelete.id); 
+                if (error) alert(`No se puede eliminar: El perfil aún tiene casos vinculados.`);
+                else setProfiles(prev => prev.filter(p => p.id !== profileToDelete.id)); 
+                setProfileToDelete(null); 
+                setActionLoading(false); 
+            }
+        });
     };
     
     const handleCreateCase = async (e: React.FormEvent) => { e.preventDefault(); if (!createCaseClient || !caseTitle) return; setActionLoading(true); const { error } = await supabase.from('cases').insert([{ titulo: caseTitle, descripcion: caseDesc, cliente_id: createCaseClient.id, estado: 'abierto' }]); if (!error) setCreateCaseClient(null); else alert(error.message); setActionLoading(false); };
@@ -164,14 +166,13 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
         });
     };
 
-    // --- FUNCIONES DE ASIGNACIÓN ---
     const handleOpenAssignLawyer = async (profile: Profile) => {
         setAssignLawyer(profile);
         setSelectedAssignClient(null);
         setAssignCasesList([]);
         setSelectedCaseIds([]);
         const { data } = await supabase.from('profiles').select('*').eq('categoria_usuario', 'cliente');
-        setAllClients(data ? data.filter(c => c.estado_aprobacion !== 'pendiente') : []); // Solo mostrar clientes aprobados
+        setAllClients(data ? data.filter(c => c.estado_aprobacion !== 'pendiente') : []); 
     };
 
     const handleSelectClientForAssignment = async (client: Profile) => {
@@ -211,45 +212,95 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
 
     const handleUnassignCase = async (e: React.MouseEvent, caseId: string, clientId: string) => {
         e.stopPropagation();
-        if (!window.confirm("¿Quitar este caso del abogado?")) return;
-        await supabase.from('asignaciones_casos').delete().match({ case_id: caseId, abogado_id: viewAssignedProfile?.id });
-        setAssignedClientsDict(prev => {
-            const newDict = { ...prev };
-            if (newDict[clientId]) {
-                const newCases = newDict[clientId].cases.filter(c => c.id !== caseId);
-                if (newCases.length === 0) delete newDict[clientId];
-                else newDict[clientId] = { ...newDict[clientId], cases: newCases };
+        setConfirmDialog({
+            isOpen: true,
+            title: '¿DESASIGNAR CASO?',
+            message: 'Se quitará este caso de la lista del abogado.',
+            onConfirm: async () => {
+                await supabase.from('asignaciones_casos').delete().match({ case_id: caseId, abogado_id: viewAssignedProfile?.id });
+                setAssignedClientsDict(prev => {
+                    const newDict = { ...prev };
+                    if (newDict[clientId]) {
+                        const newCases = newDict[clientId].cases.filter(c => c.id !== caseId);
+                        if (newCases.length === 0) delete newDict[clientId];
+                        else newDict[clientId] = { ...newDict[clientId], cases: newCases };
+                    }
+                    return newDict;
+                });
             }
-            return newDict;
         });
     };
 
     const handleUnassignClient = async (e: React.MouseEvent, clientId: string) => {
         e.stopPropagation();
-        if (!window.confirm("¿Quitar todos los casos de este cliente?")) return;
-        const casesToRemove = assignedClientsDict[clientId]?.cases || [];
-        setAssignedClientsDict(prev => {
-            const newDict = { ...prev };
-            delete newDict[clientId];
-            return newDict;
+        setConfirmDialog({
+            isOpen: true,
+            title: '¿DESASIGNAR CLIENTE?',
+            message: 'Se quitarán TODOS los casos de este cliente de la lista.',
+            onConfirm: async () => {
+                const casesToRemove = assignedClientsDict[clientId]?.cases || [];
+                setAssignedClientsDict(prev => {
+                    const newDict = { ...prev };
+                    delete newDict[clientId];
+                    return newDict;
+                });
+                for (let c of casesToRemove) {
+                    await supabase.from('asignaciones_casos').delete().match({ case_id: c.id, abogado_id: viewAssignedProfile?.id });
+                }
+            }
         });
-        for (let c of casesToRemove) {
-            await supabase.from('asignaciones_casos').delete().match({ case_id: c.id, abogado_id: viewAssignedProfile?.id });
-        }
     };
 
-    // --- NUEVO: FUNCIONES PARA VER Y BLOQUEAR PERMISOS ---
+    // SOLUCIÓN PUNTO 2 Y 3: Filtrar correctamente si ya tiene asignación o la visibilidad de personal es nula
     const handleOpenPermissions = async (profile: Profile) => {
         setViewPermissionsProfile(profile);
-        const { data } = await supabase.from('peticiones_acceso').select(`id, tipo, cliente:profiles!peticiones_acceso_cliente_id_fkey(primer_nombre, primer_apellido), caso:cases!peticiones_acceso_caso_id_fkey(titulo)`).eq('trabajador_id', profile.id).eq('estado', 'aprobado');
-        setActivePermissions(data || []);
+        
+        const { data: perms } = await supabase.from('peticiones_acceso').select(`id, tipo, cliente_id, caso_id, cliente:profiles!peticiones_acceso_cliente_id_fkey(primer_nombre, primer_apellido), caso:cases!peticiones_acceso_caso_id_fkey(id, titulo)`).eq('trabajador_id', profile.id).eq('estado', 'aprobado');
+        const { data: assignments } = await supabase.from('asignaciones_casos').select('case_id').eq('abogado_id', profile.id);
+        
+        const assignedCaseIds = assignments ? assignments.map(a => a.case_id) : [];
+
+        // Traer casos para saber a qué cliente pertenecen
+        const { data: allCases } = await supabase.from('cases').select('id, cliente_id');
+        const assignedClientIds = [...new Set(allCases?.filter(c => assignedCaseIds.includes(c.id)).map(c => c.cliente_id) || [])];
+
+        // Filtramos: 
+        // 1. Si es permiso de caso Y el caso ya está asignado -> NO LO MUESTRES
+        // 2. Si es permiso de Info Personal Y el trabajador ya tiene un caso asignado de ese cliente -> NO LO MUESTRES
+        const filteredPerms = (perms || []).filter(p => {
+            if (p.tipo === 'acceso_caso' && assignedCaseIds.includes(p.caso_id)) return false;
+            if (p.tipo === 'info_personal' && assignedClientIds.includes(p.cliente_id)) return false;
+            return true;
+        });
+
+        setActivePermissions(filteredPerms);
     };
 
-    const handleRevokePermission = async (permId: string) => {
-        if (!window.confirm("¿Estás seguro de bloquear esta visibilidad?")) return;
-        await supabase.from('peticiones_acceso').delete().eq('id', permId);
-        setActivePermissions(prev => prev.filter(p => p.id !== permId));
+    const handleRevokePermission = async (perm: any) => {
+        setConfirmDialog({
+            isOpen: true,
+            title: '¿BLOQUEAR VISIBILIDAD?',
+            message: perm.tipo === 'info_personal' ? 'Se bloqueará la información de este cliente y TODOS los casos vinculados a los que tenía acceso.' : 'Se revocará la visibilidad de este caso específico.',
+            onConfirm: async () => {
+                setActionLoading(true);
+                if (perm.tipo === 'info_personal') {
+                    await supabase.from('peticiones_acceso').delete().match({ trabajador_id: viewPermissionsProfile?.id, cliente_id: perm.cliente_id });
+                    setActivePermissions(prev => prev.filter(p => p.cliente_id !== perm.cliente_id));
+                } else {
+                    await supabase.from('peticiones_acceso').delete().eq('id', perm.id);
+                    setActivePermissions(prev => prev.filter(p => p.id !== perm.id));
+                }
+                setActionLoading(false);
+            }
+        });
     };
+
+    const groupedPermissions = activePermissions.reduce((acc, perm) => {
+        if (!acc[perm.cliente_id]) acc[perm.cliente_id] = { cliente: perm.cliente, info_personal: null, casos: [] };
+        if (perm.tipo === 'info_personal') acc[perm.cliente_id].info_personal = perm;
+        if (perm.tipo === 'acceso_caso') acc[perm.cliente_id].casos.push(perm);
+        return acc;
+    }, {} as Record<string, any>);
 
     const filteredProfiles = profiles.filter(p => { const term = searchTerm.toLowerCase(); return (p.primer_nombre + ' ' + p.primer_apellido).toLowerCase().includes(term) || (p.cedula && p.cedula.toLowerCase().includes(term)); });
     const filteredAssignClients = allClients.filter(p => (p.primer_nombre + ' ' + p.primer_apellido).toLowerCase().includes(clientSearchTerm.toLowerCase()));
@@ -285,7 +336,6 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
                                 {(role === 'abogado' || role === 'estudiante') && (
                                     <>
                                         <button onClick={() => handleOpenViewAssignedCases(p)} className="text-zinc-500 hover:text-blue-500 transition-colors" title="Ver Casos Asignados"><EyeIcon /></button>
-                                        {/* NUEVO BOTÓN: Escudo para ver Permisos */}
                                         <button onClick={() => handleOpenPermissions(p)} className="text-zinc-500 hover:text-yellow-500 transition-colors" title="Gestionar Visibilidad/Permisos"><ShieldIcon /></button>
                                         <button onClick={() => handleOpenAssignLawyer(p)} className="text-zinc-500 hover:text-green-500 transition-colors" title="Asignar Cliente/Caso"><DocumentAssignIcon /></button>
                                     </>
@@ -298,7 +348,6 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
                 </div>
             </div>
 
-            {/* MODAL MAESTRO: HISTORIAL Y CASOS */}
             <Modal isOpen={!!viewCasesClient || !!viewAssignedProfile} onClose={() => { setViewCasesClient(null); setViewAssignedProfile(null); setActiveCaseHistory(null); setEditingUpdate(null); }}>
                 {!activeCaseHistory ? (
                     <div className="p-8 flex flex-col h-full max-h-[85vh]">
@@ -336,9 +385,9 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
                                     </div>
                                     
                                     {expandedClientId === client.id && (
-                                        <div>
+                                        <div className="bg-black">
                                             {cases.map(c => (
-                                                <div key={c.id} className="flex bg-black group/case items-center pr-6 hover:bg-zinc-900 transition-colors">
+                                                <div key={c.id} className="flex group/case items-center pr-6 hover:bg-zinc-900 transition-colors border-b border-zinc-900 last:border-0">
                                                     <div className="flex-grow p-4 pl-8 cursor-pointer" onDoubleClick={() => handleOpenCaseHistory(c)}>
                                                         <h4 className="font-bold text-sm text-white">{c.titulo}</h4>
                                                         <p className="text-xs text-zinc-500 mt-1 line-clamp-1">{c.descripcion}</p>
@@ -463,7 +512,6 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
                 )}
             </Modal>
 
-            {/* MODAL NUEVO: GESTIÓN DE PERMISOS (ESCUDO) */}
             <Modal isOpen={!!viewPermissionsProfile} onClose={() => setViewPermissionsProfile(null)}>
                 <div className="p-8 flex flex-col max-h-[85vh]">
                     <div className="flex flex-col mb-6 border-b border-zinc-900 pb-4">
@@ -472,29 +520,43 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
                         <p className="text-zinc-500 text-xs mt-2">Aquí puedes revocar los accesos concedidos previamente.</p>
                     </div>
                     
-                    <div className={`space-y-2 pr-2 ${scrollbarStyle}`}>
-                        {activePermissions.length === 0 && <p className="text-zinc-500 italic text-sm">Este trabajador no tiene permisos de visibilidad activos.</p>}
-                        {activePermissions.map(perm => (
-                            <div key={perm.id} className="bg-zinc-950 border border-zinc-800 p-4 flex justify-between items-center group">
-                                <div>
-                                    <p className="text-white font-bold uppercase text-xs">
-                                        {perm.tipo === 'info_personal' ? 'INFO. PERSONAL' : 'ACCESO A CASO'}
-                                    </p>
-                                    <p className="text-zinc-500 text-[10px] mt-1">
-                                        Cliente: {perm.cliente?.primer_nombre} {perm.cliente?.primer_apellido} 
-                                        {perm.caso ? ` | Caso: ${perm.caso.titulo}` : ''}
-                                    </p>
+                    <div className={`space-y-4 pr-2 flex-grow ${scrollbarStyle}`}>
+                        {Object.values(groupedPermissions).length === 0 && <p className="text-zinc-500 italic text-sm">Este trabajador no tiene permisos de visibilidad activos adicionales a sus asignaciones.</p>}
+                        
+                        {Object.values(groupedPermissions).map(({cliente, info_personal, casos}: any) => (
+                            <div key={cliente.id} className="bg-zinc-950 border border-zinc-800 flex flex-col">
+                                
+                                <div className="p-4 bg-zinc-900 border-b border-zinc-800 flex justify-between items-center group">
+                                    <div>
+                                        <p className="text-white font-bold uppercase tracking-widest text-xs">INFO. PERSONAL</p>
+                                        <p className="text-zinc-500 text-[10px] mt-1 tracking-widest uppercase">Cliente: {cliente.primer_nombre} {cliente.primer_apellido}</p>
+                                    </div>
+                                    {info_personal && (
+                                        <button onClick={() => handleRevokePermission(info_personal)} className="text-zinc-600 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100" title="Bloquear Visibilidad Personal y Casos vinculados">
+                                            <TrashIcon />
+                                        </button>
+                                    )}
                                 </div>
-                                <button onClick={() => handleRevokePermission(perm.id)} className="text-zinc-600 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100" title="Bloquear Visibilidad">
-                                    <TrashIcon />
-                                </button>
+                                
+                                {casos.length > 0 && (
+                                    <div className="p-4 flex flex-col gap-2 bg-black">
+                                        <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-[0.3em] mb-2">CASOS VISIBLES</p>
+                                        {casos.map((casoPerm: any) => (
+                                            <div key={casoPerm.id} className="flex justify-between items-center group/case border-b border-zinc-900 pb-2 mb-2 last:border-0 last:pb-0 last:mb-0">
+                                                <p className="text-zinc-400 text-xs font-mono">- {casoPerm.caso?.titulo}</p>
+                                                <button onClick={() => handleRevokePermission(casoPerm)} className="text-zinc-600 hover:text-red-500 transition-colors opacity-0 group-hover/case:opacity-100" title="Bloquear Solo este Caso">
+                                                    <XMarkIcon />
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         ))}
                     </div>
                 </div>
             </Modal>
 
-            {/* MODAL: ASIGNAR ABOGADO A CLIENTE/CASOS */}
             <Modal isOpen={!!assignLawyer} onClose={() => setAssignLawyer(null)}>
                 <div className="p-8 flex flex-col max-h-[85vh]">
                     <h2 className="text-xl font-bold mb-6 italic tracking-widest uppercase text-white">ASIGNAR A: {assignLawyer?.primer_nombre}</h2>

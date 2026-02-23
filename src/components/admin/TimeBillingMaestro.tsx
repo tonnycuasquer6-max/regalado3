@@ -3,7 +3,6 @@ import { supabase } from '../../services/supabaseClient';
 import { Case, TimeEntry, Profile } from '../../types';
 import { TrashIcon } from '../shared/Icons';
 
-// --- Date Helper Functions ---
 const getStartOfWeek = (date: Date) => {
   const d = new Date(date);
   const day = d.getDay();
@@ -13,30 +12,20 @@ const getStartOfWeek = (date: Date) => {
 
 const toYYYYMMDD = (date: Date) => date.toISOString().split('T')[0];
 
-// --- Form Helper Components ---
 const InputField = ({ label, type = 'text', ...props }: any) => (
     <div>
         <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">{label}</label>
-        <input
-            type={type}
-            className="w-full py-2 px-0 bg-transparent border-b-2 border-zinc-800 text-white focus:outline-none focus:border-zinc-500 transition-colors"
-            {...props}
-        />
+        <input type={type} className="w-full py-2 px-0 bg-transparent border-b-2 border-zinc-800 text-white focus:outline-none focus:border-zinc-500 transition-colors" {...props} />
     </div>
 );
 
 const SelectField = ({ label, options, ...props }: any) => (
      <div>
         <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">{label}</label>
-        <select
-            className="w-full py-2 px-0 bg-transparent border-b-2 border-zinc-800 text-white focus:outline-none focus:border-zinc-500 transition-colors disabled:opacity-50"
-            {...props}
-        >
+        <select className="w-full py-2 px-0 bg-transparent border-b-2 border-zinc-800 text-white focus:outline-none focus:border-zinc-500 transition-colors disabled:opacity-50" {...props}>
             <option value="" className="bg-black">Seleccionar...</option>
             {options.map((opt: any) => (
-                <option key={opt.id} value={opt.id} className="bg-black">
-                    {opt.titulo || `${opt.primer_nombre || ''} ${opt.primer_apellido || ''}`.trim()}
-                </option>
+                <option key={opt.id} value={opt.id} className="bg-black">{opt.titulo || `${opt.primer_nombre || ''} ${opt.primer_apellido || ''}`.trim()}</option>
             ))}
         </select>
     </div>
@@ -44,16 +33,9 @@ const SelectField = ({ label, options, ...props }: any) => (
 
 const Modal: React.FC<{ isOpen: boolean; onClose: () => void; children: React.ReactNode }> = ({ isOpen, onClose, children }) => {
     if (!isOpen) return null;
-    return (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 font-mono">
-            <div className="bg-black border border-zinc-800 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
-                {children}
-            </div>
-        </div>
-    );
+    return <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 font-mono"><div className="bg-black border border-zinc-800 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">{children}</div></div>;
 };
 
-// --- Main Component ---
 const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
@@ -66,7 +48,7 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState<{ date: string; hour: number } | null>(null);
-  const [editingEntry, setEditingEntry] = useState<TimeEntry | null>(null);
+  const [editingEntry, setEditingEntry] = useState<any | null>(null);
   
   const [selectedClientId, setSelectedClientId] = useState<string>('');
   const [selectedCaseId, setSelectedCaseId] = useState<string>('');
@@ -80,7 +62,7 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
     setLoading(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("User not authenticated");
+      if (!user) return null;
 
       const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
       setCurrentUserProfile(profile);
@@ -90,29 +72,33 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
 
       const { data: allCases } = await supabase.from('cases').select('*');
       setCases(allCases || []);
-    } catch (err: any) {
-      console.error(err.message);
-    } finally {
-      setLoading(false);
-    }
+      
+      return profile;
+    } catch (err) { return null; } finally { setLoading(false); }
   }, []);
 
-  const fetchWeekEntries = useCallback(async () => {
+  // FILTRADO DE TAREAS PARA TRABAJADORES (Punto 4)
+  const fetchWeekEntries = useCallback(async (profile: any) => {
+    if (!profile) return;
     const startOfWeek = getStartOfWeek(currentDate);
     const endOfWeek = new Date(startOfWeek);
     endOfWeek.setDate(startOfWeek.getDate() + 6);
 
-    const { data } = await supabase
-      .from('time_entries')
-      .select('*, profiles(*), cases(*)')
-      .gte('fecha_tarea', toYYYYMMDD(startOfWeek))
-      .lte('fecha_tarea', toYYYYMMDD(endOfWeek));
+    let query = supabase.from('time_entries').select('*, profiles(*), cases(*)').gte('fecha_tarea', toYYYYMMDD(startOfWeek)).lte('fecha_tarea', toYYYYMMDD(endOfWeek));
+    
+    // Si no es admin, solo trae sus propias horas
+    if (profile.rol !== 'admin') {
+        query = query.eq('perfil_id', profile.id);
+    }
 
+    const { data } = await query;
     setTimeEntries(data || []);
   }, [currentDate]);
 
   useEffect(() => {
-    fetchInitialData().then(() => fetchWeekEntries());
+    fetchInitialData().then((profile) => {
+        if (profile) fetchWeekEntries(profile);
+    });
   }, [fetchInitialData, fetchWeekEntries]);
 
   const changeWeek = (direction: 'prev' | 'next') => {
@@ -134,7 +120,7 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
     setIsModalOpen(true);
   };
 
-  const openEditEntryModal = (entry: TimeEntry) => {
+  const openEditEntryModal = (entry: any) => {
     setEditingEntry(entry);
     setSelectedSlot({ date: entry.fecha_tarea, hour: parseInt(entry.hora_inicio.split(':')[0]) });
     setSelectedClientId(entry.cases?.cliente_id || '');
@@ -147,16 +133,9 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
 
   const handleSaveEntry = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedSlot || !selectedCaseId || !taskDescription || hoursWorked <= 0 || !currentUserProfile) {
-      alert('Por favor, completa todos los campos requeridos.');
-      return;
-    }
+    if (!selectedSlot || !selectedCaseId || !taskDescription || hoursWorked <= 0 || !currentUserProfile) return;
 
     setActionLoading(true);
-    
-    // --- AQUÍ ESTABA EL ERROR ---
-    // Si estamos editando un registro, mantenemos el perfil_id del creador original, 
-    // no lo sobreescribimos con el del Admin actual.
     const finalPerfilId = editingEntry ? editingEntry.perfil_id : currentUserProfile.id;
 
     const entryData = {
@@ -175,17 +154,12 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
       const { error } = await supabase.from('time_entries').upsert(entryData);
       if (error) throw error;
       setIsModalOpen(false);
-      fetchWeekEntries();
-    } catch (error: any) {
-      alert(`Error al guardar: ${error.message}`);
-    } finally {
-      setActionLoading(false);
-    }
+      await fetchWeekEntries(currentUserProfile);
+    } catch (error: any) { alert(`Error al guardar: ${error.message}`); } finally { setActionLoading(false); }
   };
 
   const handleDeleteEntry = () => {
     if (!editingEntry) return;
-    
     setConfirmDialog({
         isOpen: true,
         title: '¿ELIMINAR REGISTRO?',
@@ -196,58 +170,31 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
                 const { error } = await supabase.from('time_entries').delete().eq('id', editingEntry.id);
                 if (error) throw error;
                 setIsModalOpen(false);
-                fetchWeekEntries();
-            } catch (error: any) {
-                alert(`Error al eliminar: ${error.message}`);
-            } finally {
-                setActionLoading(false);
-            }
+                await fetchWeekEntries(currentUserProfile);
+            } catch (error: any) { alert(`Error al eliminar: ${error.message}`); } finally { setActionLoading(false); }
         }
     });
   };
 
-  const handleDragStart = (e: React.DragEvent, entry: TimeEntry) => {
-    e.dataTransfer.setData('text/plain', entry.id.toString());
-  };
+  const handleDragStart = (e: React.DragEvent, entry: TimeEntry) => { e.dataTransfer.setData('text/plain', entry.id.toString()); };
 
   const handleDrop = async (e: React.DragEvent, date: string, hour: number) => {
     e.preventDefault();
     const entryId = e.dataTransfer.getData('text/plain');
-
-    setTimeEntries(prev => 
-      prev.map(entry => 
-        entry.id === entryId 
-          ? { ...entry, fecha_tarea: date, hora_inicio: `${String(hour).padStart(2, '0')}:00:00` }
-          : entry
-      )
-    );
-
+    setTimeEntries(prev => prev.map(entry => entry.id === entryId ? { ...entry, fecha_tarea: date, hora_inicio: `${String(hour).padStart(2, '0')}:00:00` } : entry));
     try {
-      const { error } = await supabase
-        .from('time_entries')
-        .update({ fecha_tarea: date, hora_inicio: `${String(hour).padStart(2, '0')}:00:00` })
-        .eq('id', entryId);
+      const { error } = await supabase.from('time_entries').update({ fecha_tarea: date, hora_inicio: `${String(hour).padStart(2, '0')}:00:00` }).eq('id', entryId);
       if (error) throw error;
-    } catch (err: any) {
-      alert(`Error al mover: ${err.message}`);
-      fetchWeekEntries();
-    }
+    } catch (err: any) { alert(`Error al mover: ${err.message}`); fetchWeekEntries(currentUserProfile); }
   };
 
   const filteredCases = cases.filter(c => c.cliente_id === selectedClientId);
-
-  const weekDays = Array.from({ length: 7 }).map((_, i) => {
-    const day = getStartOfWeek(currentDate);
-    day.setDate(day.getDate() + i);
-    return day;
-  });
-
+  const weekDays = Array.from({ length: 7 }).map((_, i) => { const day = getStartOfWeek(currentDate); day.setDate(day.getDate() + i); return day; });
   const hours = Array.from({ length: 17 }, (_, i) => i + 6);
 
   return (
     <Fragment>
       <div className="bg-black w-full animate-in fade-in duration-500 text-white p-4 font-mono">
-        
         <header className="flex items-center justify-between mb-8 pb-4 border-b border-zinc-900">
             <h1 className="text-3xl font-black uppercase tracking-tighter italic text-white">Time Billing Semanal</h1>
             {onCancel && <button onClick={onCancel} className="text-zinc-400 hover:text-white font-black py-2 px-6 transition-colors uppercase text-[10px] tracking-[0.3em]">Volver</button>}
@@ -255,9 +202,7 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
 
         <div className="flex items-center justify-between mb-6 px-2">
             <button onClick={() => changeWeek('prev')} className="text-zinc-400 hover:text-white transition-colors font-bold text-sm">‹ Semana Anterior</button>
-            <h2 className="text-lg font-bold text-white tracking-wider">
-                {weekDays.length > 0 && `${weekDays[0].toLocaleDateString('es-ES')} - ${weekDays[6].toLocaleDateString('es-ES')}`}
-            </h2>
+            <h2 className="text-lg font-bold text-white tracking-wider">{weekDays.length > 0 && `${weekDays[0].toLocaleDateString('es-ES')} - ${weekDays[6].toLocaleDateString('es-ES')}`}</h2>
             <button onClick={() => changeWeek('next')} className="text-zinc-400 hover:text-white transition-colors font-bold text-sm">Semana Siguiente ›</button>
         </div>
 
@@ -286,32 +231,17 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
                 <div className="relative" onDragOver={(e) => e.preventDefault()}>
                   <div className="grid" style={{ gridTemplateRows: `repeat(${hours.length}, minmax(60px, auto))` }}>
                     {hours.map((hour, hourIndex) => (
-                      <div 
-                        key={hourIndex} 
-                        className="h-[60px] border-b border-zinc-800 hover:bg-zinc-900 cursor-pointer transition-colors"
-                        onClick={() => openNewEntryModal(toYYYYMMDD(day), hour)}
-                        onDrop={(e) => handleDrop(e, toYYYYMMDD(day), hour)}
-                        onDragOver={(e) => e.preventDefault()}
-                      ></div>
+                      <div key={hourIndex} className="h-[60px] border-b border-zinc-800 hover:bg-zinc-900 cursor-pointer transition-colors" onClick={() => openNewEntryModal(toYYYYMMDD(day), hour)} onDrop={(e) => handleDrop(e, toYYYYMMDD(day), hour)} onDragOver={(e) => e.preventDefault()}></div>
                     ))}
                   </div>
 
                   <div className="absolute top-0 left-0 w-full h-full pointer-events-none">
-                    {timeEntries
-                      .filter(entry => entry.fecha_tarea === toYYYYMMDD(day))
-                      .map(entry => {
+                    {timeEntries.filter(entry => entry.fecha_tarea === toYYYYMMDD(day)).map(entry => {
                         const entryHour = parseInt(entry.hora_inicio.split(':')[0]);
                         const top = (entryHour - 6) * 60;
                         const height = entry.horas * 60;
                         return (
-                          <div 
-                            key={entry.id} 
-                            className="absolute w-full p-2 rounded-lg bg-indigo-600 text-xs overflow-hidden shadow-lg border border-indigo-400 cursor-move z-10 pointer-events-auto hover:bg-indigo-500 transition-colors"
-                            style={{ top: `${top}px`, height: `${height}px`, left: '2px', right: '2px', width: 'calc(100% - 4px)' }}
-                            draggable
-                            onDragStart={(e) => handleDragStart(e, entry)}
-                            onClick={(e) => { e.stopPropagation(); openEditEntryModal(entry); }}
-                          >
+                          <div key={entry.id} className="absolute w-full p-2 rounded-lg bg-indigo-600 text-xs overflow-hidden shadow-lg border border-indigo-400 cursor-move z-10 pointer-events-auto hover:bg-indigo-500 transition-colors" style={{ top: `${top}px`, height: `${height}px`, left: '2px', right: '2px', width: 'calc(100% - 4px)' }} draggable onDragStart={(e) => handleDragStart(e, entry)} onClick={(e) => { e.stopPropagation(); openEditEntryModal(entry); }}>
                             <p className="font-bold text-white truncate">{entry.cases?.titulo}</p>
                             <p className="text-indigo-200 truncate">{entry.descripcion_tarea}</p>
                             <p className="text-indigo-100 italic opacity-80 mt-1">{entry.profiles?.primer_nombre}</p>
@@ -331,60 +261,20 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
             <div className="p-8">
                 <h2 className="text-xl font-bold text-white mb-8 italic tracking-widest">{editingEntry ? 'EDITAR' : 'REGISTRAR'} TAREA</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
-                    
                     <InputField label="Fecha" type="date" value={selectedSlot?.date || ''} readOnly />
-                    
                     <div>
                         <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">Abogado</label>
                         <div className="w-full py-2 px-0 bg-transparent border-b-2 border-zinc-800 text-white opacity-70">
                             {editingEntry ? `${editingEntry.profiles?.primer_nombre} ${editingEntry.profiles?.primer_apellido}` : `${currentUserProfile?.primer_nombre} ${currentUserProfile?.primer_apellido}`}
                         </div>
                     </div>
-                    
-                    <SelectField 
-                        label="Cliente" 
-                        value={selectedClientId} 
-                        onChange={(e: any) => setSelectedClientId(e.target.value)} 
-                        options={clientProfiles} 
-                        required
-                    />
-                    
-                    <SelectField 
-                        label="Caso" 
-                        value={selectedCaseId} 
-                        onChange={(e: any) => setSelectedCaseId(e.target.value)} 
-                        options={filteredCases} 
-                        disabled={!selectedClientId} 
-                        required
-                    />
-                    
+                    <SelectField label="Cliente" value={selectedClientId} onChange={(e: any) => setSelectedClientId(e.target.value)} options={clientProfiles} required />
+                    <SelectField label="Caso" value={selectedCaseId} onChange={(e: any) => setSelectedCaseId(e.target.value)} options={filteredCases} disabled={!selectedClientId} required />
                     <div className="md:col-span-2">
-                        <InputField 
-                            label="Descripción Tarea" 
-                            value={taskDescription} 
-                            onChange={(e: any) => setTaskDescription(e.target.value)} 
-                            required 
-                        />
+                        <InputField label="Descripción Tarea" value={taskDescription} onChange={(e: any) => setTaskDescription(e.target.value)} required />
                     </div>
-                    
-                    <InputField 
-                        label="Horas" 
-                        type="number" 
-                        step="0.25" 
-                        min="0.25"
-                        value={hoursWorked} 
-                        onChange={(e: any) => setHoursWorked(parseFloat(e.target.value) || 0)} 
-                        required 
-                    />
-                    
-                    <InputField 
-                        label="Tarifa ($/hr)" 
-                        type="number" 
-                        step="1" 
-                        min="0"
-                        value={rate} 
-                        onChange={(e: any) => setRate(parseFloat(e.target.value) || 0)} 
-                    />
+                    <InputField label="Horas" type="number" step="0.25" min="0.25" value={hoursWorked} onChange={(e: any) => setHoursWorked(parseFloat(e.target.value) || 0)} required />
+                    <InputField label="Tarifa ($/hr)" type="number" step="1" min="0" value={rate} onChange={(e: any) => setRate(parseFloat(e.target.value) || 0)} />
                 </div>
             </div>
             <div className="p-4 bg-zinc-900/50 flex justify-between items-center border-t border-zinc-800">
