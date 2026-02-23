@@ -44,9 +44,14 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
 
     useEffect(() => { fetchApprovals(); }, []);
 
-    // SOLUCIÓN: Usar la contraseña que viene del frontend sin alterar.
+    // SOLUCIÓN: Crear cuenta sin auto-loguearse ni destruir la sesión del admin.
     const handleApproveClient = async (item: any) => {
         try {
+            // Guardamos la sesión actual del admin antes de crear al cliente
+            const { data: { session: adminSession } } = await supabase.auth.getSession();
+
+            // Creamos al usuario. El backend no tiene una forma nativa de "no loguear" en este tier,
+            // pero podemos usar el flujo normal.
             const { data: authData, error: authError } = await supabase.auth.signUp({
                 email: item.temp_email,
                 password: item.temp_password,
@@ -72,6 +77,16 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
                 if (profileError) throw profileError;
                 
                 await supabase.from('peticiones_acceso').delete().eq('id', item.id);
+                
+                // Si la sesión del admin se perdió por crear al usuario, 
+                // forzamos el restablecimiento de la sesión usando el token del admin que guardamos.
+                if (adminSession) {
+                    await supabase.auth.setSession({
+                        access_token: adminSession.access_token,
+                        refresh_token: adminSession.refresh_token
+                    });
+                }
+                
                 fetchApprovals();
             }
         } catch (error: any) {
