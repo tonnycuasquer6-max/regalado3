@@ -23,6 +23,9 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
     const [caseUpdates, setCaseUpdates] = useState<any[]>([]);
     const [rejectDialog, setRejectDialog] = useState<{ isOpen: boolean; updateId: string }>({ isOpen: false, updateId: '' });
     const [rejectReason, setRejectReason] = useState('');
+    
+    const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void }>({ isOpen: false, title: '', message: '', onConfirm: () => {} });
+    const [errorDialog, setErrorDialog] = useState<{ isOpen: boolean; message: string }>({ isOpen: false, message: '' });
 
     const fetchApprovals = async () => {
         setLoading(true);
@@ -41,10 +44,9 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
 
     useEffect(() => { fetchApprovals(); }, []);
 
-    // --- SOLUCIÓN: LÓGICA PARA APROBAR UN CLIENTE NUEVO ---
+    // SOLUCIÓN: Usar la contraseña que viene del frontend sin alterar.
     const handleApproveClient = async (item: any) => {
         try {
-            // 1. Crear el usuario en Auth para que tenga un ID válido
             const { data: authData, error: authError } = await supabase.auth.signUp({
                 email: item.temp_email,
                 password: item.temp_password,
@@ -52,7 +54,6 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
 
             if (authError) throw authError;
 
-            // 2. Insertarlo oficialmente en perfiles (Ya no da error porque Auth le dio ID)
             const userId = authData.user?.id;
             if (userId) {
                 const { error: profileError } = await supabase.from('profiles').insert({
@@ -70,44 +71,71 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
                 });
                 if (profileError) throw profileError;
                 
-                // 3. Borrar la petición pendiente
                 await supabase.from('peticiones_acceso').delete().eq('id', item.id);
                 fetchApprovals();
             }
         } catch (error: any) {
-            alert(`Error al aprobar cliente: ${error.message}`);
+            setErrorDialog({ isOpen: true, message: error.message });
         }
     };
 
-    const handleRejectClient = async (id: string) => {
-        if(window.confirm("¿Rechazar y eliminar permanentemente este registro de cliente?")) {
-            await supabase.from('peticiones_acceso').delete().eq('id', id);
-            fetchApprovals();
-        }
+    const handleRejectClient = (id: string) => {
+        setConfirmDialog({
+            isOpen: true,
+            title: '¿RECHAZAR CLIENTE?',
+            message: 'El registro se eliminará de las peticiones permanentemente.',
+            onConfirm: async () => {
+                await supabase.from('peticiones_acceso').delete().eq('id', id);
+                fetchApprovals();
+            }
+        });
     };
 
-    // --- PETICIONES (CENSURA) ---
-    const handleApprovePetition = async (id: string) => { await supabase.from('peticiones_acceso').update({ estado: 'aprobado' }).eq('id', id); fetchApprovals(); };
-    const handleRejectPetition = async (id: string) => { await supabase.from('peticiones_acceso').update({ estado: 'rechazado' }).eq('id', id); fetchApprovals(); };
+    const handleApprovePetition = async (id: string) => { 
+        const { error } = await supabase.from('peticiones_acceso').update({ estado: 'aprobado' }).eq('id', id); 
+        if (error) setErrorDialog({ isOpen: true, message: error.message });
+        else fetchApprovals();
+    };
 
-    // --- HISTORIAL DE CASOS ---
+    const handleRejectPetition = async (id: string) => { 
+        const { error } = await supabase.from('peticiones_acceso').update({ estado: 'rechazado' }).eq('id', id); 
+        if (error) setErrorDialog({ isOpen: true, message: error.message });
+        else fetchApprovals();
+    };
+
     const openCaseHistory = async (caso: any) => {
         setActiveCaseHistory(caso);
         const { data } = await supabase.from('case_updates').select('*').eq('case_id', caso.id).order('created_at', { ascending: false });
         setCaseUpdates(data || []);
     };
-    const handleApproveUpdate = async (updateId: string) => { await supabase.from('case_updates').update({ estado_aprobacion: 'aprobado', observacion: null }).eq('id', updateId); setCaseUpdates(prev => prev.map(u => u.id === updateId ? { ...u, estado_aprobacion: 'aprobado', observacion: null } : u)); fetchApprovals(); };
+    
+    const handleApproveUpdate = async (updateId: string) => { 
+        await supabase.from('case_updates').update({ estado_aprobacion: 'aprobado', observacion: null }).eq('id', updateId); 
+        setCaseUpdates(prev => prev.map(u => u.id === updateId ? { ...u, estado_aprobacion: 'aprobado', observacion: null } : u)); 
+        fetchApprovals(); 
+    };
+
     const confirmRejectUpdate = async () => {
         if (!rejectReason.trim()) return;
         await supabase.from('case_updates').update({ estado_aprobacion: 'rechazado', observacion: rejectReason }).eq('id', rejectDialog.updateId);
         setCaseUpdates(prev => prev.map(u => u.id === rejectDialog.updateId ? { ...u, estado_aprobacion: 'rechazado', observacion: rejectReason } : u));
-        setRejectDialog({ isOpen: false, updateId: '' }); setRejectReason(''); fetchApprovals();
+        setRejectDialog({ isOpen: false, updateId: '' }); 
+        setRejectReason(''); 
+        fetchApprovals();
     };
-    const handleDeleteUpdate = async (update: any) => {
-        if (!window.confirm("¿Eliminar permanentemente este registro?")) return;
-        if (update.file_url) { const path = update.file_url.split('case_files/')[1]; if (path) await supabase.storage.from('case_files').remove([path]); }
-        await supabase.from('case_updates').delete().eq('id', update.id);
-        setCaseUpdates(prev => prev.filter(u => u.id !== update.id)); fetchApprovals();
+
+    const handleDeleteUpdate = (update: any) => {
+        setConfirmDialog({
+            isOpen: true,
+            title: '¿ELIMINAR REGISTRO?',
+            message: 'Esta acción eliminará permanentemente este registro de la línea de tiempo.',
+            onConfirm: async () => {
+                if (update.file_url) { const path = update.file_url.split('case_files/')[1]; if (path) await supabase.storage.from('case_files').remove([path]); }
+                await supabase.from('case_updates').delete().eq('id', update.id);
+                setCaseUpdates(prev => prev.filter(u => u.id !== update.id)); 
+                fetchApprovals();
+            }
+        });
     };
 
     return (
@@ -122,7 +150,21 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
                 <div className="space-y-4">
                     {notifications.map((item) => {
                         
-                        // RENDERIZAR NOTIFICACIÓN DE ARCHIVO SUBIDO
+                        if (item._type === 'petition' && item.tipo === 'nuevo_cliente') {
+                            return (
+                                <div key={`nc-${item.id}`} className="bg-zinc-950 border border-green-900/30 p-6 relative overflow-hidden shadow-lg">
+                                    <div className="absolute top-0 left-0 w-1 h-full bg-green-500"></div>
+                                    <p className="text-zinc-400 text-sm leading-relaxed">
+                                        <strong className="text-white uppercase">{item.trabajador?.rol}: {item.trabajador?.primer_nombre} {item.trabajador?.primer_apellido}</strong> registró un nuevo cliente en el sistema: <strong className="text-white uppercase">{item.temp_primer_nombre} {item.temp_primer_apellido}</strong> ({item.temp_cedula}).
+                                    </p>
+                                    <div className="flex gap-6 mt-4">
+                                        <button onClick={() => handleApproveClient(item)} className="text-[10px] font-bold uppercase tracking-widest text-green-500 hover:text-green-400 transition-colors">Aprobar Cliente</button>
+                                        <button onClick={() => handleRejectClient(item.id)} className="text-[10px] font-bold uppercase tracking-widest text-red-500 hover:text-red-400 transition-colors">Rechazar / Borrar</button>
+                                    </div>
+                                </div>
+                            );
+                        }
+
                         if (item._type === 'update') {
                             const trabajador = item.perfil; const caso = item.caso; const cliente = caso?.cliente;
                             return (
@@ -138,27 +180,8 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
                             );
                         }
 
-                        // RENDERIZAR NOTIFICACIÓN DE PETICIÓN
-                        if (item._type === 'petition') {
+                        if (item._type === 'petition' && item.tipo !== 'nuevo_cliente') {
                             const trabajador = item.trabajador; const cliente = item.cliente;
-                            
-                            // SI ES UN NUEVO CLIENTE (LA SOLUCIÓN AL PROBLEMA)
-                            if (item.tipo === 'nuevo_cliente') {
-                                return (
-                                    <div key={`nc-${item.id}`} className="bg-zinc-950 border border-green-900/30 p-6 relative overflow-hidden shadow-lg">
-                                        <div className="absolute top-0 left-0 w-1 h-full bg-green-500"></div>
-                                        <p className="text-zinc-400 text-sm leading-relaxed">
-                                            <strong className="text-white uppercase">{trabajador?.rol}: {trabajador?.primer_nombre} {trabajador?.primer_apellido}</strong> registró un nuevo cliente en el sistema: <strong className="text-white uppercase">{item.temp_primer_nombre} {item.temp_primer_apellido}</strong> ({item.temp_cedula}).
-                                        </p>
-                                        <div className="flex gap-6 mt-4">
-                                            <button onClick={() => handleApproveClient(item)} className="text-[10px] font-bold uppercase tracking-widest text-green-500 hover:text-green-400 transition-colors">Aprobar Cliente</button>
-                                            <button onClick={() => handleRejectClient(item.id)} className="text-[10px] font-bold uppercase tracking-widest text-red-500 hover:text-red-400 transition-colors">Rechazar / Borrar</button>
-                                        </div>
-                                    </div>
-                                );
-                            }
-
-                            // SI ES PETICIÓN DE CENSURA NORMAL
                             const tipoMsg = item.tipo === 'info_personal' ? 'INFORMACIÓN PERSONAL' : `ACCESO AL CASO: ${item.caso?.titulo}`;
                             return (
                                 <div key={`pet-${item.id}`} className="bg-zinc-950 border border-blue-900/30 p-6 relative overflow-hidden shadow-lg">
@@ -241,7 +264,28 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
                     </div>
                     <div className="flex justify-end gap-4">
                         <button type="button" onClick={() => { setRejectDialog({ isOpen: false, updateId: '' }); setRejectReason(''); }} className="py-2 px-6 text-zinc-400 hover:text-white transition-colors font-bold uppercase text-[10px] tracking-widest">Cancelar</button>
-                        <button type="button" onClick={confirmRejectUpdate} disabled={!rejectReason.trim()} className="bg-red-900 text-white font-bold py-2 px-6 hover:bg-red-800 transition-colors uppercase tracking-widest text-[10px] disabled:opacity-50">Rechazar</button>
+                        <button type="button" onClick={confirmRejectUpdate} disabled={!rejectReason.trim()} className="bg-red-900 text-white font-bold py-2 px-6 hover:bg-red-800 transition-colors uppercase tracking-widest text-[10px]">Rechazar</button>
+                    </div>
+                </div>
+            </Modal>
+
+            <Modal isOpen={confirmDialog.isOpen} onClose={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}>
+                <div className="p-8 text-center">
+                    <h2 className="text-xl font-bold text-white mb-4 italic tracking-widest uppercase">{confirmDialog.title}</h2>
+                    <p className="text-zinc-400 mb-8">{confirmDialog.message}</p>
+                    <div className="flex justify-center gap-4">
+                        <button onClick={() => setConfirmDialog({ ...confirmDialog, isOpen: false })} className="py-2 px-6 text-zinc-400 hover:text-white transition-colors text-[10px] uppercase font-bold tracking-widest">Cancelar</button>
+                        <button onClick={() => { confirmDialog.onConfirm(); setConfirmDialog({ ...confirmDialog, isOpen: false }); }} className="bg-red-900 text-white font-bold py-2 px-6 hover:bg-red-800 transition-colors uppercase tracking-widest text-[10px]">Confirmar</button>
+                    </div>
+                </div>
+            </Modal>
+            
+            <Modal isOpen={errorDialog.isOpen} onClose={() => setErrorDialog({ isOpen: false, message: '' })}>
+                <div className="p-8 text-center">
+                    <h2 className="text-xl font-bold text-red-500 mb-4 italic tracking-widest uppercase">ERROR</h2>
+                    <p className="text-zinc-400 mb-8">{errorDialog.message}</p>
+                    <div className="flex justify-center gap-4">
+                        <button onClick={() => setErrorDialog({ isOpen: false, message: '' })} className="bg-white text-black font-bold py-2 px-6 hover:bg-zinc-200 transition-colors uppercase tracking-widest text-[10px]">Aceptar</button>
                     </div>
                 </div>
             </Modal>

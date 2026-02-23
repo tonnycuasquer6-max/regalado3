@@ -4,9 +4,9 @@ import { supabase } from '../../services/supabaseClient';
 
 // Vistas compartidas
 import TimeBillingMaestro from '../admin/TimeBillingMaestro';
-import CaseView from '../CaseView';
 import ExpensesView from './ExpensesView';
 
+// --- Iconos ---
 const BellIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" /></svg>;
 const LockIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 inline-block mr-2 text-red-500"><path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" /></svg>;
 const UnlockIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 inline-block mr-2 text-green-500"><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 10.5V6.75a4.5 4.5 0 119 0v3.75M3.75 21.75h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" /></svg>;
@@ -87,7 +87,6 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
         setActionLoading(false);
     };
 
-    // SOLUCIÓN: Crear cliente como una petición para que el admin lo valide y lo inserte en auth
     const handleCreateClient = async (e: React.FormEvent) => {
         e.preventDefault();
         setActionLoading(true);
@@ -169,8 +168,10 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
 
     if (loading) return <div className="text-center p-12 text-zinc-500 animate-pulse">Cargando base de datos segura...</div>;
 
-    // Buscamos las peticiones de nuevo cliente pendientes de este trabajador para mostrarlas en la lista
     const pendingNewClients = petitions.filter(p => p.tipo === 'nuevo_cliente' && p.estado === 'pendiente');
+
+    // SOLUCIÓN: Expresión regular para obligar a que sean exactamente 6 dígitos idénticos
+    const isPasswordValid = /^(\d)\1{5}$/.test(clientPassword);
 
     return (
         <div className="animate-in fade-in duration-500">
@@ -186,7 +187,6 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Mostramos los clientes que el trabajador mandó a crear y están pendientes */}
                 {pendingNewClients.map(pet => (
                     <div key={pet.id} className="bg-black border border-zinc-800 p-6 flex flex-col relative overflow-hidden opacity-50 grayscale">
                         <div className="absolute top-4 right-4 bg-yellow-900/50 text-yellow-500 border border-yellow-900 px-3 py-1 text-[8px] font-black uppercase tracking-widest">
@@ -212,10 +212,19 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
                     const infoPet = petitions.find(p => p.cliente_id === client.id && p.tipo === 'info_personal');
                     const autoClientAccess = assignedClients.includes(client.id);
                     const hasInfoAccess = autoClientAccess || infoPet?.estado === 'aprobado';
+                    const isPendingClient = client.estado_aprobacion === 'pendiente';
                     const clientCases = cases.filter(c => c.cliente_id === client.id);
 
+                    if (isPendingClient && client.creado_por !== session.user.id) return null;
+
                     return (
-                        <div key={client.id} className="bg-black border border-zinc-800 p-6 flex flex-col relative overflow-hidden transition-all">
+                        <div key={client.id} className={`bg-black border border-zinc-800 p-6 flex flex-col relative overflow-hidden transition-all ${isPendingClient ? 'opacity-50 grayscale' : ''}`}>
+                            {isPendingClient && (
+                                <div className="absolute top-4 right-4 bg-yellow-900/50 text-yellow-500 border border-yellow-900 px-3 py-1 text-[8px] font-black uppercase tracking-widest">
+                                    En Revisión de Admin
+                                </div>
+                            )}
+
                             <div className="flex justify-between items-start mb-6">
                                 <div>
                                     <h3 className="text-xl font-bold uppercase tracking-widest text-white flex items-center gap-2">
@@ -227,7 +236,7 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
                                     </p>
                                 </div>
                                 
-                                {!hasInfoAccess && (
+                                {!hasInfoAccess && !isPendingClient && (
                                     <div>
                                         {infoPet?.estado === 'pendiente' ? (
                                             <span className="text-yellow-500 text-[10px] font-bold uppercase tracking-widest border border-yellow-900 px-3 py-2">⏳ Revisando</span>
@@ -343,6 +352,12 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
                                 <div>
                                     <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">CONTRASEÑA PROVISIONAL</label>
                                     <input type="password" required value={clientPassword} onChange={e => setClientPassword(e.target.value)} className="w-full bg-transparent border-b border-zinc-800 text-white py-1 focus:outline-none focus:border-zinc-500" />
+                                    <div className="mt-4 p-4 border border-zinc-900 bg-zinc-950/50">
+                                        {/* SOLUCIÓN: UI para indicar si los 6 dígitos son correctos */}
+                                        <p className={`text-[10px] mb-2 font-bold tracking-widest uppercase transition-colors ${isPasswordValid ? 'text-white' : 'text-zinc-600'}`}>
+                                            ✓ 6 dígitos idénticos (Ej. 555555)
+                                        </p>
+                                    </div>
                                 </div>
                             </div>
                         )}
@@ -354,7 +369,8 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
                         ) : (
                             <>
                                 <button type="button" onClick={() => setFormStep(1)} className="text-zinc-500 text-[10px] font-bold tracking-widest hover:text-white uppercase transition-colors">REGRESAR</button>
-                                <button type="submit" disabled={actionLoading} className="bg-white text-black font-bold py-3 px-8 text-[10px] tracking-widest uppercase hover:bg-zinc-300 transition-colors disabled:opacity-50">ENVIAR A REVISIÓN</button>
+                                {/* SOLUCIÓN: Botón desactivado si la contraseña no cumple */}
+                                <button type="submit" disabled={actionLoading || !isPasswordValid} className="bg-white text-black font-bold py-3 px-8 text-[10px] tracking-widest uppercase hover:bg-zinc-300 transition-colors disabled:opacity-50">ENVIAR A REVISIÓN</button>
                             </>
                         )}
                     </div>
@@ -620,7 +636,7 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
                         <button
                             key={item.id}
                             onClick={() => handleMenuClick(item.id)}
-                            className={`text-lg lg:text-xl uppercase font-black tracking-[0.2em] transition-colors ${activeView === item.id ? 'text-white' : 'text-zinc-600 hover:text-zinc-300'}`}
+                            className={`text-lg uppercase font-black tracking-[0.2em] transition-colors ${activeView === item.id ? 'text-white' : 'text-zinc-600 hover:text-zinc-300'}`}
                         >
                             {item.label}
                         </button>
