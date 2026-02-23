@@ -32,7 +32,7 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
         setLoading(true);
         const { data: updatesData } = await supabase.from('case_updates').select(`id, created_at, estado_aprobacion, perfil:profiles!case_updates_perfil_id_fkey(primer_nombre, primer_apellido, rol), caso:cases!case_id(id, titulo, cliente:profiles!cliente_id(primer_nombre, primer_apellido))`).eq('estado_aprobacion', 'pendiente');
 
-        // SOLUCIÓN: Agregamos trabajador_id a la consulta para asignarlo como creado_por luego
+        // SOLUCIÓN 1: Nos aseguramos de traer trabajador_id para asignarlo como creado_por
         const { data: petitionsData } = await supabase.from('peticiones_acceso').select(`id, tipo, created_at, trabajador_id, temp_email, temp_password, temp_primer_nombre, temp_segundo_nombre, temp_primer_apellido, temp_segundo_apellido, temp_cedula, temp_foto_url, trabajador:profiles!peticiones_acceso_trabajador_id_fkey(primer_nombre, primer_apellido, rol), cliente:profiles!peticiones_acceso_cliente_id_fkey(primer_nombre, primer_apellido), caso:cases!peticiones_acceso_caso_id_fkey(id, titulo)`).eq('estado', 'pendiente');
 
         let combined: any[] = [];
@@ -46,6 +46,7 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
 
     useEffect(() => { fetchApprovals(); }, []);
 
+    // SOLUCIÓN 2: Lógica de guardado con retardo y UPDATE para no chocar con el trigger de Supabase
     const handleApproveClient = async (item: any) => {
         try {
             const url = (supabase as any).supabaseUrl;
@@ -62,10 +63,11 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
 
             const userId = authData.user?.id;
             if (userId) {
-                // SOLUCIÓN: Usamos UPSERT. Si el trigger de la BD creó el perfil en blanco, esto lo reescribe con todos los datos.
-                const { error: profileError } = await supabase.from('profiles').upsert({
-                    id: userId,
-                    email: item.temp_email,
+                // Esperamos 800 milisegundos para asegurar que Supabase creó el perfil en blanco base
+                await new Promise(resolve => setTimeout(resolve, 800));
+
+                // Usamos UPDATE en lugar de insert/upsert para inyectarle la información sin generar choques
+                const { error: profileError } = await supabase.from('profiles').update({
                     primer_nombre: item.temp_primer_nombre,
                     segundo_nombre: item.temp_segundo_nombre,
                     primer_apellido: item.temp_primer_apellido,
@@ -76,10 +78,11 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
                     categoria_usuario: 'cliente',
                     estado_aprobacion: 'aprobado',
                     creado_por: item.trabajador_id
-                });
+                }).eq('id', userId);
                 
                 if (profileError) throw profileError;
                 
+                // Borramos la petición exitosamente
                 await supabase.from('peticiones_acceso').delete().eq('id', item.id);
                 fetchApprovals();
             }
