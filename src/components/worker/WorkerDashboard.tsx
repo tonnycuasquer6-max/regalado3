@@ -1,25 +1,25 @@
-import React, { useState, useEffect, useCallback, Fragment, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from '../../services/supabaseClient';
 
+// Vistas compartidas
 import TimeBillingMaestro from '../admin/TimeBillingMaestro';
-import CaseView from '../CaseView';
 import ExpensesView from './ExpensesView';
 
+// --- Iconos ---
 const BellIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" /></svg>;
 const LockIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 inline-block mr-2 text-red-500"><path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" /></svg>;
 const UnlockIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 inline-block mr-2 text-green-500"><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 10.5V6.75a4.5 4.5 0 119 0v3.75M3.75 21.75h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" /></svg>;
 const UserIcon = ({ className = "w-5 h-5" }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" /></svg>;
 const DocumentIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 inline-block mr-1"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>;
 const PaperClipIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 pointer-events-none"><path strokeLinecap="round" strokeLinejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" /></svg>;
-const MenuIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M3 12h18M3 6h18M3 18h18" /></svg>;
 const PencilIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 pointer-events-none"><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" /></svg>;
 
 const scrollbarStyle = "overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-zinc-800 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-zinc-700 transition-colors";
 
 const Modal: React.FC<{ isOpen: boolean; onClose: () => void; children: React.ReactNode }> = ({ isOpen, onClose, children }) => {
     if (!isOpen) return null;
-    return <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4 font-mono"><div className="bg-black border border-zinc-800 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col relative">{children}</div></div>;
+    return <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4 font-mono"><div className="bg-black border border-zinc-800 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] relative">{children}</div></div>;
 };
 
 // ==========================================
@@ -43,6 +43,14 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
     const [clientPassword, setClientPassword] = useState('');
     const photoInputRef = useRef<HTMLInputElement>(null);
 
+    // Modal Historial de Caso
+    const [activeCaseHistory, setActiveCaseHistory] = useState<any | null>(null);
+    const [caseUpdates, setCaseUpdates] = useState<any[]>([]);
+    const [updateDesc, setUpdateDesc] = useState('');
+    const [uploadFile, setUploadFile] = useState<File | null>(null);
+    const [editingUpdate, setEditingUpdate] = useState<any | null>(null); // Para editar si fue rechazado
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
     const fetchData = useCallback(async () => {
         setLoading(true);
         const { data: clientsData } = await supabase.from('profiles').select('*').eq('rol', 'cliente').order('created_at', { ascending: false });
@@ -65,8 +73,15 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
 
     const handleRequestAccess = async (tipo: 'info_personal' | 'acceso_caso', clientId: string, caseId: string | null = null) => {
         setActionLoading(true);
-        await supabase.from('peticiones_acceso').insert({ trabajador_id: session.user.id, cliente_id: clientId, caso_id: caseId, tipo: tipo, estado: 'pendiente' });
-        await fetchData();
+        const { error } = await supabase.from('peticiones_acceso').insert({
+            trabajador_id: session.user.id,
+            cliente_id: clientId,
+            caso_id: caseId,
+            tipo: tipo,
+            estado: 'pendiente'
+        });
+        if (error) alert(error.message);
+        else await fetchData();
         setActionLoading(false);
     };
 
@@ -97,6 +112,35 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
         }
     };
 
+    const openCaseHistory = async (caso: any) => {
+        setActiveCaseHistory(caso);
+        const { data } = await supabase.from('case_updates').select('*').eq('case_id', caso.id).order('created_at', { ascending: false });
+        setCaseUpdates(data || []);
+    };
+
+    const handleAddOrEditUpdate = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!activeCaseHistory || (!updateDesc.trim() && !uploadFile)) return;
+        setActionLoading(true);
+        let final_url = editingUpdate?.file_url || null;
+        let final_name = editingUpdate?.file_name || null;
+
+        if (uploadFile) {
+            if (editingUpdate?.file_url) { const oldPath = editingUpdate.file_url.split('case_files/')[1]; if (oldPath) await supabase.storage.from('case_files').remove([oldPath]); }
+            const filePath = `${activeCaseHistory.id}/${Date.now()}_${uploadFile.name}`;
+            const { error: uploadError } = await supabase.storage.from('case_files').upload(filePath, uploadFile);
+            if (!uploadError) { const { data } = supabase.storage.from('case_files').getPublicUrl(filePath); final_url = data.publicUrl; final_name = uploadFile.name; }
+        }
+
+        const payload = { case_id: activeCaseHistory.id, descripcion: updateDesc, file_url: final_url, file_name: final_name, estado_aprobacion: 'pendiente', perfil_id: session.user.id, observacion: null };
+        
+        if (editingUpdate) await supabase.from('case_updates').update(payload).eq('id', editingUpdate.id);
+        else await supabase.from('case_updates').insert([payload]);
+
+        setUpdateDesc(''); setUploadFile(null); setEditingUpdate(null); openCaseHistory(activeCaseHistory);
+        setActionLoading(false);
+    };
+
     if (loading) return <div className="text-center p-12 text-zinc-500 animate-pulse">Cargando base de datos segura...</div>;
 
     return (
@@ -116,7 +160,6 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
                 {clients.length === 0 && <p className="text-zinc-500 text-sm">No hay clientes registrados en el sistema.</p>}
                 {clients.map(client => {
                     const infoPet = petitions.find(p => p.cliente_id === client.id && p.tipo === 'info_personal');
-                    // SOLUCIÓN 1: Si ya está asignado o tiene permiso
                     const autoClientAccess = assignedClients.includes(client.id);
                     const hasInfoAccess = autoClientAccess || infoPet?.estado === 'aprobado';
                     const isPendingClient = client.estado_aprobacion === 'pendiente';
@@ -125,7 +168,9 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
                     return (
                         <div key={client.id} className={`bg-black border border-zinc-800 p-6 flex flex-col relative overflow-hidden transition-all ${isPendingClient ? 'opacity-50 grayscale' : ''}`}>
                             {isPendingClient && (
-                                <div className="absolute top-4 right-4 bg-yellow-900/50 text-yellow-500 border border-yellow-900 px-3 py-1 text-[8px] font-black uppercase tracking-widest">En Revisión</div>
+                                <div className="absolute top-4 right-4 bg-yellow-900/50 text-yellow-500 border border-yellow-900 px-3 py-1 text-[8px] font-black uppercase tracking-widest">
+                                    En Revisión
+                                </div>
                             )}
 
                             <div className="flex justify-between items-start mb-6">
@@ -154,7 +199,7 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
                                 )}
                             </div>
 
-                            {/* SOLUCIÓN 2: Mostrar Casos Vinculados si tiene acceso (COMO ESTABA ANTES) */}
+                            {/* SOLUCIÓN 1: Casos Vinculados Restaurados */}
                             {hasInfoAccess && (
                                 <div className="border-t border-zinc-900 pt-4 flex-grow">
                                     <h4 className="text-[10px] text-zinc-500 font-black uppercase tracking-[0.3em] mb-4">Casos Vinculados</h4>
@@ -162,7 +207,6 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
                                         <div className="space-y-3">
                                             {clientCases.map(c => {
                                                 const casePet = petitions.find(p => p.caso_id === c.id && p.tipo === 'acceso_caso');
-                                                // Si está asignado, no pide permiso
                                                 const autoCaseAccess = assignedCases.includes(c.id);
                                                 const hasCaseAccess = autoCaseAccess || casePet?.estado === 'aprobado';
 
@@ -175,7 +219,11 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
                                                             <p className="text-xs text-zinc-500 line-clamp-1 mt-1">{c.descripcion}</p>
                                                         </div>
                                                         <div>
-                                                            {!hasCaseAccess && (
+                                                            {hasCaseAccess ? (
+                                                                <button onClick={() => openCaseHistory(c)} className="text-green-500 hover:text-green-400 text-[10px] font-bold uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-all border border-green-900/50 px-3 py-1">
+                                                                    Abrir Caso ›
+                                                                </button>
+                                                            ) : (
                                                                 casePet?.estado === 'pendiente' ? <span className="text-yellow-500 text-[10px] font-bold uppercase tracking-widest">⏳ Revisando</span> :
                                                                 <button onClick={() => handleRequestAccess('acceso_caso', client.id, c.id)} disabled={actionLoading} className="text-zinc-400 hover:text-white text-[10px] font-bold uppercase tracking-widest transition-colors border border-zinc-700 px-3 py-1">
                                                                     Pedir Acceso
@@ -194,7 +242,7 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
                 })}
             </div>
 
-            {/* FORMULARIO DE CLIENTE (2 PASOS, SCROLL, SIN CANCELAR, CON FOTO) */}
+            {/* FORMULARIO DE CLIENTE (2 PASOS, SCROLL, SIN CANCELAR, CON FOTO Y SIN EMAIL EN PASO 1) */}
             <Modal isOpen={isCreateModalOpen} onClose={() => setIsCreateModalOpen(false)}>
                 <form onSubmit={handleCreateClient} className="bg-black w-full text-white font-mono flex flex-col max-h-[85vh]">
                     
@@ -268,10 +316,7 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
 
                     <div className="p-8 pt-4 border-t border-zinc-900 flex justify-end flex-shrink-0 bg-black gap-6 items-center">
                         {formStep === 1 ? (
-                            <>
-                                <button type="button" onClick={() => setIsCreateModalOpen(false)} className="text-zinc-500 text-[10px] font-bold tracking-widest hover:text-white uppercase transition-colors">CANCELAR</button>
-                                <button type="button" onClick={() => setFormStep(2)} className="bg-zinc-800 text-white font-bold py-3 px-8 text-[10px] tracking-widest uppercase hover:bg-zinc-700 transition-colors">SIGUIENTE</button>
-                            </>
+                            <button type="button" onClick={() => setFormStep(2)} className="bg-zinc-800 text-white font-bold py-3 px-8 text-[10px] tracking-widest uppercase hover:bg-zinc-700 transition-colors w-full md:w-auto text-center">SIGUIENTE</button>
                         ) : (
                             <>
                                 <button type="button" onClick={() => setFormStep(1)} className="text-zinc-500 text-[10px] font-bold tracking-widest hover:text-white uppercase transition-colors">REGRESAR</button>
@@ -281,12 +326,66 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
                     </div>
                 </form>
             </Modal>
+
+            {/* MODAL HISTORIAL DEL CASO (Para registrar y editar) */}
+            <Modal isOpen={!!activeCaseHistory} onClose={() => { setActiveCaseHistory(null); setEditingUpdate(null); setUpdateDesc(''); }}>
+                {activeCaseHistory && (
+                    <div className="flex flex-col h-[85vh]">
+                        <div className="p-6 bg-zinc-950 border-b border-zinc-900">
+                            <button onClick={() => { setActiveCaseHistory(null); setEditingUpdate(null); setUpdateDesc(''); }} className="text-zinc-500 hover:text-white text-[10px] uppercase tracking-widest mb-2 flex items-center gap-2 transition-colors">
+                                ‹ Volver a la Lista
+                            </button>
+                            <h2 className="text-lg font-bold italic tracking-widest uppercase text-white">HISTORIAL: {activeCaseHistory.titulo}</h2>
+                        </div>
+                        <div className={`p-6 flex-grow bg-black space-y-8 ${scrollbarStyle}`}>
+                            {caseUpdates.map((u) => (
+                                <div key={u.id} className="relative pl-6 border-l border-zinc-800 group/item">
+                                    <div className={`absolute w-2 h-2 rounded-full -left-[5px] top-1.5 ring-4 ring-black ${u.estado_aprobacion === 'pendiente' ? 'bg-yellow-500' : u.estado_aprobacion === 'rechazado' ? 'bg-red-500' : 'bg-green-500'}`}></div>
+                                    
+                                    <div className="flex justify-between items-start">
+                                        <p className="text-[10px] text-zinc-600 font-mono mb-1">{new Date(u.created_at).toLocaleString()}</p>
+                                        
+                                        {/* SOLUCIÓN LÁPIZ: Si el admin lo rechaza, el trabajador puede editarlo */}
+                                        {u.estado_aprobacion === 'rechazado' && (
+                                            <button type="button" onClick={() => { setEditingUpdate(u); setUpdateDesc(u.descripcion); }} className="text-zinc-600 hover:text-white transition-colors opacity-0 group-hover/item:opacity-100" title="Editar y reenviar"><PencilIcon /></button>
+                                        )}
+                                    </div>
+                                    
+                                    {u.estado_aprobacion === 'pendiente' && <span className="bg-yellow-900/30 text-yellow-500 px-2 py-0.5 rounded text-[8px] uppercase tracking-widest font-black inline-block mb-2">Pendiente de Aprobación</span>}
+                                    {u.estado_aprobacion === 'rechazado' && <div className="text-red-400 text-[10px] tracking-widest font-mono mb-2 p-2 border border-red-900/50 bg-red-950/20">RECHAZADO: {u.observacion}</div>}
+                                    {u.estado_aprobacion === 'aprobado' && <span className="bg-green-900/30 text-green-500 px-2 py-0.5 rounded text-[8px] uppercase tracking-widest font-black inline-block mb-2">Aprobado</span>}
+                                    
+                                    <p className="text-sm text-zinc-300 mt-1">{u.descripcion}</p>
+                                    {u.file_url && (
+                                        <a href={u.file_url} target="_blank" rel="noreferrer" className="inline-flex items-center text-[10px] bg-zinc-900 border border-zinc-800 px-3 py-1.5 mt-3 text-blue-400 hover:bg-zinc-800 uppercase tracking-widest transition-colors">
+                                            <DocumentIcon /> {u.file_name}
+                                        </a>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                        <div className="p-4 bg-zinc-950 border-t border-zinc-900">
+                            <form onSubmit={handleAddOrEditUpdate} className="flex flex-col gap-3">
+                                {editingUpdate && <div className="text-[10px] text-yellow-500 uppercase font-black tracking-widest px-2">Corrigiendo Registro... <button type="button" onClick={() => {setEditingUpdate(null); setUpdateDesc('');}} className="ml-4 text-zinc-500 hover:text-white">Cancelar</button></div>}
+                                <div className="flex items-end gap-3">
+                                    <input type="file" ref={fileInputRef} className="hidden" onChange={(e) => setUploadFile(e.target.files![0])} />
+                                    <button type="button" onClick={() => fileInputRef.current?.click()} className={`p-3 border border-zinc-800 transition-colors ${uploadFile ? 'text-green-500' : 'text-zinc-500 hover:text-white'}`}><PaperClipIcon /></button>
+                                    <input type="text" placeholder="Añadir actualización al caso..." className="flex-grow bg-transparent border-b border-zinc-800 py-2 text-white focus:outline-none transition-colors" value={updateDesc} onChange={(e) => setUpdateDesc(e.target.value)} required />
+                                    <button disabled={actionLoading} className="bg-white text-black font-black px-6 py-2 text-[10px] uppercase tracking-widest hover:bg-zinc-300 transition-colors disabled:opacity-50">
+                                        {editingUpdate ? 'Reenviar' : 'Enviar'}
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                )}
+            </Modal>
         </div>
     );
 };
 
 // ==========================================
-// VISTA 2: CASOS ASIGNADOS
+// VISTA 2: CASOS ASIGNADOS (CASCADA)
 // ==========================================
 const WorkerAssignedCasesView: React.FC<{ session: Session }> = ({ session }) => {
     const [assignedClientsDict, setAssignedClientsDict] = useState<{ [key: string]: { client: any, cases: any[] } }>({});
@@ -297,25 +396,19 @@ const WorkerAssignedCasesView: React.FC<{ session: Session }> = ({ session }) =>
     const [caseUpdates, setCaseUpdates] = useState<any[]>([]);
     const [updateDesc, setUpdateDesc] = useState('');
     const [uploadFile, setUploadFile] = useState<File | null>(null);
-    
-    // ESTADO PARA LÁPIZ DE EDICIÓN
     const [editingUpdate, setEditingUpdate] = useState<any>(null);
-    
     const [actionLoading, setActionLoading] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const fetchAssignedData = useCallback(async () => {
         setLoading(true);
         const { data: asignaciones } = await supabase.from('asignaciones_casos').select('case_id').eq('abogado_id', session.user.id);
-        
         if (asignaciones && asignaciones.length > 0) {
             const caseIds = asignaciones.map(a => a.case_id);
             const { data: cases } = await supabase.from('cases').select('*').in('id', caseIds);
-            
             if (cases && cases.length > 0) {
                 const clientIds = [...new Set(cases.map(c => c.cliente_id))];
                 const { data: clients } = await supabase.from('profiles').select('*').in('id', clientIds);
-                
                 const dict: any = {};
                 clients?.forEach(client => { dict[client.id] = { client, cases: cases.filter(c => c.cliente_id === client.id) }; });
                 setAssignedClientsDict(dict);
@@ -336,7 +429,6 @@ const WorkerAssignedCasesView: React.FC<{ session: Session }> = ({ session }) =>
         e.preventDefault();
         if (!activeCaseHistory || (!updateDesc.trim() && !uploadFile)) return;
         setActionLoading(true);
-        
         let final_url = editingUpdate?.file_url || null;
         let final_name = editingUpdate?.file_name || null;
 
@@ -348,7 +440,6 @@ const WorkerAssignedCasesView: React.FC<{ session: Session }> = ({ session }) =>
         }
 
         const payload = { case_id: activeCaseHistory.id, descripcion: updateDesc, file_url: final_url, file_name: final_name, estado_aprobacion: 'pendiente', perfil_id: session.user.id, observacion: null };
-        
         if (editingUpdate) await supabase.from('case_updates').update(payload).eq('id', editingUpdate.id);
         else await supabase.from('case_updates').insert([payload]);
 
@@ -397,6 +488,7 @@ const WorkerAssignedCasesView: React.FC<{ session: Session }> = ({ session }) =>
                 </div>
             )}
 
+            {/* EL MODAL DE HISTORIAL DEL CASO ES COMPARTIDO ENTRE AMBAS VISTAS */}
             <Modal isOpen={!!activeCaseHistory} onClose={() => { setActiveCaseHistory(null); setEditingUpdate(null); setUpdateDesc(''); }}>
                 {activeCaseHistory && (
                     <div className="flex flex-col h-[85vh]">
@@ -413,8 +505,6 @@ const WorkerAssignedCasesView: React.FC<{ session: Session }> = ({ session }) =>
                                     
                                     <div className="flex justify-between items-start">
                                         <p className="text-[10px] text-zinc-600 font-mono mb-1">{new Date(u.created_at).toLocaleString()}</p>
-                                        
-                                        {/* SOLUCIÓN LÁPIZ: Si es rechazado, aparece el lápiz al pasar el mouse */}
                                         {u.estado_aprobacion === 'rechazado' && (
                                             <button type="button" onClick={() => { setEditingUpdate(u); setUpdateDesc(u.descripcion); }} className="text-zinc-600 hover:text-white transition-colors opacity-0 group-hover/item:opacity-100" title="Editar y reenviar"><PencilIcon /></button>
                                         )}
@@ -458,30 +548,19 @@ const WorkerAssignedCasesView: React.FC<{ session: Session }> = ({ session }) =>
 // ==========================================
 const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
     const [activeView, setActiveView] = useState('HOME');
-    const [isAnimated, setIsAnimated] = useState(false);
     const [profileMenuOpen, setProfileMenuOpen] = useState(false);
-    const [mobileMenuOpen, setMobileMenuOpen] = useState(false); // SOLUCIÓN: Menú hamburguesa móvil
 
-    useEffect(() => {
-        if (activeView === 'HOME') {
-            setIsAnimated(false);
-            const timer = setTimeout(() => setIsAnimated(true), 1200);
-            return () => clearTimeout(timer);
-        }
-    }, [activeView]);
-
-    // SOLUCIÓN: Cierra todos los menús al navegar
+    // SOLUCIÓN: El menú se oculta al seleccionar una opción
     const handleMenuClick = (view: string) => {
         setActiveView(view);
-        setMobileMenuOpen(false);
-        setProfileMenuOpen(false);
+        setProfileMenuOpen(false); 
     };
 
     const renderContent = () => {
         switch (activeView) {
             case 'CLIENTS': return <WorkerClientsView session={session} />;
             case 'ASSIGNED_CASES': return <WorkerAssignedCasesView session={session} />;
-            case 'TIME_BILLING': return <TimeBillingMaestro onCancel={() => setActiveView('HOME')} />;
+            case 'TIME_BILLING': return <TimeBillingMaestro onCancel={() => handleMenuClick('HOME')} />;
             case 'EXPENSES': return <ExpensesView />;
             default: return null;
         }
@@ -491,16 +570,10 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
         <div className="bg-black min-h-screen text-white flex flex-col font-mono relative">
             
             <header className="flex justify-between items-center p-6 bg-black sticky top-0 z-50">
-                {/* Menú Móvil (Hamburguesa) */}
-                <button onClick={() => setMobileMenuOpen(true)} className="md:hidden text-zinc-400 hover:text-white">
-                    <MenuIcon />
-                </button>
-
-                <div className="font-black text-2xl tracking-[0.3em] cursor-pointer hover:text-zinc-300 transition-colors hidden md:block w-32" onClick={() => handleMenuClick('HOME')}>
+                <div className="font-black text-2xl tracking-[0.3em] cursor-pointer hover:text-zinc-300 transition-colors w-32" onClick={() => handleMenuClick('HOME')}>
                     R&R
                 </div>
                 
-                {/* Menú Escritorio Centrado */}
                 <nav className="hidden md:flex flex-grow justify-center gap-8 lg:gap-16">
                     {[
                         { id: 'CLIENTS', label: 'Clientes' },
@@ -511,7 +584,7 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
                         <button
                             key={item.id}
                             onClick={() => handleMenuClick(item.id)}
-                            className={`text-lg uppercase font-black tracking-[0.2em] transition-colors ${activeView === item.id ? 'text-white' : 'text-zinc-600 hover:text-zinc-300'}`}
+                            className={`text-lg lg:text-xl uppercase font-black tracking-[0.2em] transition-colors ${activeView === item.id ? 'text-white' : 'text-zinc-600 hover:text-zinc-300'}`}
                         >
                             {item.label}
                         </button>
@@ -529,7 +602,7 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
                             <UserIcon className="w-6 h-6 text-zinc-400 pointer-events-none" />
                         </button>
 
-                        {/* SOLUCIÓN: Cierra al hacer clic en opciones */}
+                        {/* SOLUCIÓN: Backdrop que captura clics y cierra el menú */}
                         {profileMenuOpen && (
                             <>
                                 <div className="fixed inset-0 z-40" onClick={() => setProfileMenuOpen(false)}></div>
@@ -550,29 +623,6 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
                     </div>
                 </div>
             </header>
-
-            {/* SOLUCIÓN MENÚ MÓVIL (Fullscreen modal) */}
-            {mobileMenuOpen && (
-                <div className="fixed inset-0 bg-black z-[100] flex flex-col font-mono p-6">
-                    <div className="flex justify-between items-center mb-12">
-                        <div className="font-black text-2xl tracking-[0.3em]">R&R</div>
-                        <button onClick={() => setMobileMenuOpen(false)} className="text-zinc-500 hover:text-white"><CloseIcon /></button>
-                    </div>
-                    <div className="flex flex-col gap-8 text-left">
-                        {[
-                            { id: 'HOME', label: 'Inicio' },
-                            { id: 'CLIENTS', label: 'Clientes' },
-                            { id: 'ASSIGNED_CASES', label: 'Casos Asignados' },
-                            { id: 'TIME_BILLING', label: 'Time Billing' },
-                            { id: 'EXPENSES', label: 'Gastos' }
-                        ].map(item => (
-                            <button key={item.id} onClick={() => handleMenuClick(item.id)} className={`text-2xl font-black uppercase tracking-[0.2em] ${activeView === item.id ? 'text-white' : 'text-zinc-600'}`}>
-                                {item.label}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-            )}
 
             <main className="flex-grow flex flex-col relative">
                 {activeView === 'HOME' ? (

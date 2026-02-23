@@ -9,16 +9,17 @@ const DocumentIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" v
 const DocumentAssignIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 pointer-events-none"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v6m3-3H9" /></svg>;
 const CheckIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-5 h-5 pointer-events-none"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>;
 const XMarkIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-5 h-5 pointer-events-none"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>;
+const ShieldIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 pointer-events-none"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" /></svg>;
 
 const scrollbarStyle = "overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-zinc-800 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-zinc-700 transition-colors";
 
-interface Profile { id: string; primer_nombre: string; primer_apellido: string; cedula: string; email: string; foto_url: string | null; rol: string; categoria_usuario: 'abogado' | 'estudiante' | 'cliente'; }
+interface Profile { id: string; primer_nombre: string; primer_apellido: string; cedula: string; email: string; foto_url: string | null; rol: string; categoria_usuario: 'abogado' | 'estudiante' | 'cliente'; estado_aprobacion: string; }
 interface Case { id: string; created_at: string; titulo: string; descripcion: string; estado: string; cliente_id: string; }
 interface CaseUpdate { id: string; created_at: string; descripcion: string; file_url: string | null; file_name: string | null; estado_aprobacion: string; observacion: string | null; }
 
 const Modal: React.FC<{ isOpen: boolean; onClose: () => void; children: React.ReactNode }> = ({ isOpen, onClose, children }) => {
     if (!isOpen) return null;
-    return <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 font-mono"><div className="bg-black border border-zinc-800 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">{children}</div></div>;
+    return <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4 font-mono"><div className="bg-black border border-zinc-800 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">{children}</div></div>;
 };
 
 const InputField: React.FC<{ label: string, value: string, onChange: (e: any) => void, type?: string, required?: boolean }> = ({ label, value, onChange, type = 'text', required }) => (
@@ -61,6 +62,10 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
     const [assignedClientsDict, setAssignedClientsDict] = useState<{ [key: string]: { client: Profile, cases: Case[] } }>({});
     const [expandedClientId, setExpandedClientId] = useState<string | null>(null);
 
+    // NUEVO: Ver permisos de censura
+    const [viewPermissionsProfile, setViewPermissionsProfile] = useState<Profile | null>(null);
+    const [activePermissions, setActivePermissions] = useState<any[]>([]);
+
     const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void }>({ isOpen: false, title: '', message: '', onConfirm: () => {} });
     const [rejectDialog, setRejectDialog] = useState<{ isOpen: boolean; updateId: string }>({ isOpen: false, updateId: '' });
     const [rejectReason, setRejectReason] = useState('');
@@ -68,7 +73,8 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
     const fetchProfiles = useCallback(async () => {
         setLoading(true);
         const { data } = await supabase.from('profiles').select('*').eq('categoria_usuario', role);
-        setProfiles(data || []);
+        // Filtramos para que aquí no salgan los que están pendientes (esos se ven en Aprobaciones)
+        setProfiles(data ? data.filter(p => p.estado_aprobacion !== 'pendiente') : []);
         setLoading(false);
     }, [role]);
 
@@ -158,13 +164,14 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
         });
     };
 
+    // --- FUNCIONES DE ASIGNACIÓN ---
     const handleOpenAssignLawyer = async (profile: Profile) => {
         setAssignLawyer(profile);
         setSelectedAssignClient(null);
         setAssignCasesList([]);
         setSelectedCaseIds([]);
         const { data } = await supabase.from('profiles').select('*').eq('categoria_usuario', 'cliente');
-        setAllClients(data || []);
+        setAllClients(data ? data.filter(c => c.estado_aprobacion !== 'pendiente') : []); // Solo mostrar clientes aprobados
     };
 
     const handleSelectClientForAssignment = async (client: Profile) => {
@@ -202,49 +209,46 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
         } else { setAssignedClientsDict({}); }
     };
 
-    const handleUnassignCase = (e: React.MouseEvent, caseId: string, clientId: string) => {
+    const handleUnassignCase = async (e: React.MouseEvent, caseId: string, clientId: string) => {
         e.stopPropagation();
-        setConfirmDialog({
-            isOpen: true,
-            title: '¿DESASIGNAR CASO?',
-            message: 'Se quitará este caso de la lista del personal asignado.',
-            onConfirm: async () => {
-                setActionLoading(true);
-                await supabase.from('asignaciones_casos').delete().match({ case_id: caseId, abogado_id: viewAssignedProfile?.id });
-                setAssignedClientsDict(prev => {
-                    const newDict = { ...prev };
-                    if (newDict[clientId]) {
-                        const newCases = newDict[clientId].cases.filter(c => c.id !== caseId);
-                        if (newCases.length === 0) delete newDict[clientId];
-                        else newDict[clientId] = { ...newDict[clientId], cases: newCases };
-                    }
-                    return newDict;
-                });
-                setActionLoading(false);
+        if (!window.confirm("¿Quitar este caso del abogado?")) return;
+        await supabase.from('asignaciones_casos').delete().match({ case_id: caseId, abogado_id: viewAssignedProfile?.id });
+        setAssignedClientsDict(prev => {
+            const newDict = { ...prev };
+            if (newDict[clientId]) {
+                const newCases = newDict[clientId].cases.filter(c => c.id !== caseId);
+                if (newCases.length === 0) delete newDict[clientId];
+                else newDict[clientId] = { ...newDict[clientId], cases: newCases };
             }
+            return newDict;
         });
     };
 
-    const handleUnassignClient = (e: React.MouseEvent, clientId: string) => {
+    const handleUnassignClient = async (e: React.MouseEvent, clientId: string) => {
         e.stopPropagation();
-        setConfirmDialog({
-            isOpen: true,
-            title: '¿DESASIGNAR CLIENTE?',
-            message: 'Se quitarán TODOS los casos de este cliente de la lista.',
-            onConfirm: async () => {
-                setActionLoading(true);
-                const casesToRemove = assignedClientsDict[clientId]?.cases || [];
-                setAssignedClientsDict(prev => {
-                    const newDict = { ...prev };
-                    delete newDict[clientId];
-                    return newDict;
-                });
-                for (let c of casesToRemove) {
-                    await supabase.from('asignaciones_casos').delete().match({ case_id: c.id, abogado_id: viewAssignedProfile?.id });
-                }
-                setActionLoading(false);
-            }
+        if (!window.confirm("¿Quitar todos los casos de este cliente?")) return;
+        const casesToRemove = assignedClientsDict[clientId]?.cases || [];
+        setAssignedClientsDict(prev => {
+            const newDict = { ...prev };
+            delete newDict[clientId];
+            return newDict;
         });
+        for (let c of casesToRemove) {
+            await supabase.from('asignaciones_casos').delete().match({ case_id: c.id, abogado_id: viewAssignedProfile?.id });
+        }
+    };
+
+    // --- NUEVO: FUNCIONES PARA VER Y BLOQUEAR PERMISOS ---
+    const handleOpenPermissions = async (profile: Profile) => {
+        setViewPermissionsProfile(profile);
+        const { data } = await supabase.from('peticiones_acceso').select(`id, tipo, cliente:profiles!peticiones_acceso_cliente_id_fkey(primer_nombre, primer_apellido), caso:cases!peticiones_acceso_caso_id_fkey(titulo)`).eq('trabajador_id', profile.id).eq('estado', 'aprobado');
+        setActivePermissions(data || []);
+    };
+
+    const handleRevokePermission = async (permId: string) => {
+        if (!window.confirm("¿Estás seguro de bloquear esta visibilidad?")) return;
+        await supabase.from('peticiones_acceso').delete().eq('id', permId);
+        setActivePermissions(prev => prev.filter(p => p.id !== permId));
     };
 
     const filteredProfiles = profiles.filter(p => { const term = searchTerm.toLowerCase(); return (p.primer_nombre + ' ' + p.primer_apellido).toLowerCase().includes(term) || (p.cedula && p.cedula.toLowerCase().includes(term)); });
@@ -281,6 +285,8 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
                                 {(role === 'abogado' || role === 'estudiante') && (
                                     <>
                                         <button onClick={() => handleOpenViewAssignedCases(p)} className="text-zinc-500 hover:text-blue-500 transition-colors" title="Ver Casos Asignados"><EyeIcon /></button>
+                                        {/* NUEVO BOTÓN: Escudo para ver Permisos */}
+                                        <button onClick={() => handleOpenPermissions(p)} className="text-zinc-500 hover:text-yellow-500 transition-colors" title="Gestionar Visibilidad/Permisos"><ShieldIcon /></button>
                                         <button onClick={() => handleOpenAssignLawyer(p)} className="text-zinc-500 hover:text-green-500 transition-colors" title="Asignar Cliente/Caso"><DocumentAssignIcon /></button>
                                     </>
                                 )}
@@ -292,6 +298,7 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
                 </div>
             </div>
 
+            {/* MODAL MAESTRO: HISTORIAL Y CASOS */}
             <Modal isOpen={!!viewCasesClient || !!viewAssignedProfile} onClose={() => { setViewCasesClient(null); setViewAssignedProfile(null); setActiveCaseHistory(null); setEditingUpdate(null); }}>
                 {!activeCaseHistory ? (
                     <div className="p-8 flex flex-col h-full max-h-[85vh]">
@@ -317,27 +324,26 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
 
                             {viewAssignedProfile && Object.values(assignedClientsDict).length === 0 && <p className="text-zinc-500">No hay casos asignados.</p>}
                             {viewAssignedProfile && Object.values(assignedClientsDict).map(({client, cases}) => (
-                                <div key={client.id} className="border border-zinc-800 bg-zinc-950 mb-4">
-                                    
-                                    <div className="flex bg-zinc-900 border-b border-zinc-800 group items-center pr-6">
-                                        <div onClick={() => setExpandedClientId(expandedClientId === client.id ? null : client.id)} className="flex-grow p-4 cursor-pointer hover:bg-zinc-800 transition-colors">
+                                <div key={client.id} className="bg-zinc-950 mb-4">
+                                    <div className="flex bg-zinc-900 group items-center pr-6 hover:bg-zinc-800 transition-colors">
+                                        <div onClick={() => setExpandedClientId(expandedClientId === client.id ? null : client.id)} className="flex-grow p-4 cursor-pointer">
                                             <h3 className="font-bold text-white uppercase tracking-widest">CLIENTE: {client.primer_nombre} {client.primer_apellido}</h3>
                                             <span className="text-zinc-500 text-xs">{cases.length} caso(s) asignado(s)</span>
                                         </div>
-                                        <button type="button" onClick={(e) => handleUnassignClient(e, client.id)} className="text-zinc-600 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100 z-50 relative pointer-events-auto" title="Desasignar todos los casos">
+                                        <button type="button" onClick={(e) => handleUnassignClient(e, client.id)} className="p-2 text-zinc-600 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100 z-10 relative" title="Desasignar todos los casos">
                                             <TrashIcon />
                                         </button>
                                     </div>
                                     
                                     {expandedClientId === client.id && (
-                                        <div className="bg-black">
+                                        <div>
                                             {cases.map(c => (
-                                                <div key={c.id} className="flex group/case border-b border-zinc-900 last:border-0 items-center pr-6">
-                                                    <div className="flex-grow p-4 pl-8 cursor-pointer hover:bg-zinc-900 transition-colors" onDoubleClick={() => handleOpenCaseHistory(c)}>
+                                                <div key={c.id} className="flex bg-black group/case items-center pr-6 hover:bg-zinc-900 transition-colors">
+                                                    <div className="flex-grow p-4 pl-8 cursor-pointer" onDoubleClick={() => handleOpenCaseHistory(c)}>
                                                         <h4 className="font-bold text-sm text-white">{c.titulo}</h4>
                                                         <p className="text-xs text-zinc-500 mt-1 line-clamp-1">{c.descripcion}</p>
                                                     </div>
-                                                    <button type="button" onClick={(e) => handleUnassignCase(e, c.id, client.id)} className="text-zinc-600 hover:text-red-500 transition-colors opacity-0 group-hover/case:opacity-100 z-50 relative pointer-events-auto" title="Desasignar solo este caso">
+                                                    <button type="button" onClick={(e) => handleUnassignCase(e, c.id, client.id)} className="p-2 text-zinc-600 hover:text-red-500 transition-colors opacity-0 group-hover/case:opacity-100 z-10 relative" title="Desasignar solo este caso">
                                                         <XMarkIcon />
                                                     </button>
                                                 </div>
@@ -422,20 +428,15 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
                                                         <div className="flex items-center gap-2">
                                                             <p className="text-[10px] text-zinc-600 font-mono">{new Date(u.created_at).toLocaleString()}</p>
                                                             {isPending && <span className="bg-yellow-900/30 text-yellow-500 text-[8px] uppercase px-1 py-0.5 rounded font-bold">Pendiente de Revisión</span>}
-                                                            {isRejected && <span className="bg-red-900/30 text-red-500 text-[8px] uppercase px-1 py-0.5 rounded font-bold">Rechazado (En Corrección)</span>}
+                                                            {isRejected && <span className="bg-red-900/30 text-red-500 text-[8px] uppercase px-1 py-0.5 rounded font-bold">Rechazado</span>}
                                                             {isApproved && <span className="bg-green-900/30 text-green-500 text-[8px] uppercase px-1 py-0.5 rounded font-bold">Aprobado</span>}
                                                         </div>
                                                         
-                                                        {/* SOLUCIÓN AL CHECK ICON: SOLO SE VE SI NO ESTÁ APROBADO Y TAMPOCO RECHAZADO */}
-                                                        {!isApproved && (
-                                                            <div className="flex gap-4 opacity-0 group-hover/item:opacity-100 transition-opacity items-center">
-                                                                {!isRejected && (
-                                                                    <button type="button" onClick={(e) => { e.stopPropagation(); handleApproveUpdate(u.id); }} className="text-green-600 hover:text-green-400" title="Aprobar (Dar Visto)"><CheckIcon /></button>
-                                                                )}
-                                                                <button type="button" onClick={(e) => { e.stopPropagation(); setRejectDialog({ isOpen: true, updateId: u.id }); }} className="text-red-500 hover:text-red-400" title="Mandar a corregir (Rechazar)"><XMarkIcon /></button>
-                                                                <button type="button" onClick={(e) => { e.stopPropagation(); handleDeleteUpdate(u); }} className="text-zinc-600 hover:text-red-500 transition-colors ml-2" title="Eliminar permanentemente"><TrashIcon /></button>
-                                                            </div>
-                                                        )}
+                                                        <div className="flex gap-4 opacity-0 group-hover/item:opacity-100 transition-opacity items-center">
+                                                            {!isApproved && !isRejected && <button type="button" onClick={(e) => { e.stopPropagation(); handleApproveUpdate(u.id); }} className="text-green-600 hover:text-green-400" title="Aprobar (Dar Visto)"><CheckIcon /></button>}
+                                                            {!isApproved && <button type="button" onClick={(e) => { e.stopPropagation(); setRejectDialog({ isOpen: true, updateId: u.id }); }} className="text-red-500 hover:text-red-400" title="Mandar a corregir (Rechazar)"><XMarkIcon /></button>}
+                                                            <button type="button" onClick={(e) => { e.stopPropagation(); handleDeleteUpdate(u); }} className="text-zinc-600 hover:text-red-500 transition-colors ml-2" title="Eliminar permanentemente"><TrashIcon /></button>
+                                                        </div>
                                                     </div>
                                                     
                                                     <p className="text-sm text-zinc-300 mt-1">{u.descripcion}</p>
@@ -448,8 +449,7 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
 
                                                     {isRejected && u.observacion && (
                                                         <div className="mt-3 bg-red-950/30 border border-red-900 p-2 text-xs text-red-400">
-                                                            <strong className="uppercase text-[10px] tracking-widest block mb-1">Motivo de Rechazo:</strong>
-                                                            {u.observacion}
+                                                            <strong className="uppercase text-[10px] tracking-widest block mb-1">Motivo de Rechazo:</strong>{u.observacion}
                                                         </div>
                                                     )}
                                                 </div>
@@ -463,6 +463,38 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
                 )}
             </Modal>
 
+            {/* MODAL NUEVO: GESTIÓN DE PERMISOS (ESCUDO) */}
+            <Modal isOpen={!!viewPermissionsProfile} onClose={() => setViewPermissionsProfile(null)}>
+                <div className="p-8 flex flex-col max-h-[85vh]">
+                    <div className="flex flex-col mb-6 border-b border-zinc-900 pb-4">
+                        <button onClick={() => setViewPermissionsProfile(null)} className="text-zinc-500 hover:text-white text-[10px] uppercase tracking-widest mb-4 w-fit flex items-center gap-2">‹ Volver</button>
+                        <h2 className="text-xl font-bold italic tracking-widest uppercase text-white">VISIBILIDAD ACTIVA: {viewPermissionsProfile?.primer_nombre}</h2>
+                        <p className="text-zinc-500 text-xs mt-2">Aquí puedes revocar los accesos concedidos previamente.</p>
+                    </div>
+                    
+                    <div className={`space-y-2 pr-2 ${scrollbarStyle}`}>
+                        {activePermissions.length === 0 && <p className="text-zinc-500 italic text-sm">Este trabajador no tiene permisos de visibilidad activos.</p>}
+                        {activePermissions.map(perm => (
+                            <div key={perm.id} className="bg-zinc-950 border border-zinc-800 p-4 flex justify-between items-center group">
+                                <div>
+                                    <p className="text-white font-bold uppercase text-xs">
+                                        {perm.tipo === 'info_personal' ? 'INFO. PERSONAL' : 'ACCESO A CASO'}
+                                    </p>
+                                    <p className="text-zinc-500 text-[10px] mt-1">
+                                        Cliente: {perm.cliente?.primer_nombre} {perm.cliente?.primer_apellido} 
+                                        {perm.caso ? ` | Caso: ${perm.caso.titulo}` : ''}
+                                    </p>
+                                </div>
+                                <button onClick={() => handleRevokePermission(perm.id)} className="text-zinc-600 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100" title="Bloquear Visibilidad">
+                                    <TrashIcon />
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </Modal>
+
+            {/* MODAL: ASIGNAR ABOGADO A CLIENTE/CASOS */}
             <Modal isOpen={!!assignLawyer} onClose={() => setAssignLawyer(null)}>
                 <div className="p-8 flex flex-col max-h-[85vh]">
                     <h2 className="text-xl font-bold mb-6 italic tracking-widest uppercase text-white">ASIGNAR A: {assignLawyer?.primer_nombre}</h2>
