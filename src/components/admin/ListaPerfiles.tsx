@@ -215,9 +215,14 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
         setConfirmDialog({
             isOpen: true,
             title: '¿DESASIGNAR CASO?',
-            message: 'Se quitará este caso de la lista del abogado.',
+            message: 'Se quitará este caso de la lista del abogado y se revocarán los permisos extra sobre él.',
             onConfirm: async () => {
+                // Borra la asignación
                 await supabase.from('asignaciones_casos').delete().match({ case_id: caseId, abogado_id: viewAssignedProfile?.id });
+                
+                // SOLUCIÓN PUNTO 1: Quitar visibilidad activa de ese caso también
+                await supabase.from('peticiones_acceso').delete().match({ caso_id: caseId, trabajador_id: viewAssignedProfile?.id });
+
                 setAssignedClientsDict(prev => {
                     const newDict = { ...prev };
                     if (newDict[clientId]) {
@@ -236,7 +241,7 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
         setConfirmDialog({
             isOpen: true,
             title: '¿DESASIGNAR CLIENTE?',
-            message: 'Se quitarán TODOS los casos de este cliente de la lista.',
+            message: 'Se quitarán TODOS los casos de este cliente y se revocará su visibilidad activa.',
             onConfirm: async () => {
                 const casesToRemove = assignedClientsDict[clientId]?.cases || [];
                 setAssignedClientsDict(prev => {
@@ -247,11 +252,13 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
                 for (let c of casesToRemove) {
                     await supabase.from('asignaciones_casos').delete().match({ case_id: c.id, abogado_id: viewAssignedProfile?.id });
                 }
+
+                // SOLUCIÓN PUNTO 1: Quitar toda visibilidad activa para este cliente (Info personal y Casos)
+                await supabase.from('peticiones_acceso').delete().match({ cliente_id: clientId, trabajador_id: viewAssignedProfile?.id });
             }
         });
     };
 
-    // SOLUCIÓN PUNTO 2 Y 3: Filtrar correctamente si ya tiene asignación o la visibilidad de personal es nula
     const handleOpenPermissions = async (profile: Profile) => {
         setViewPermissionsProfile(profile);
         
@@ -260,13 +267,9 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
         
         const assignedCaseIds = assignments ? assignments.map(a => a.case_id) : [];
 
-        // Traer casos para saber a qué cliente pertenecen
         const { data: allCases } = await supabase.from('cases').select('id, cliente_id');
         const assignedClientIds = [...new Set(allCases?.filter(c => assignedCaseIds.includes(c.id)).map(c => c.cliente_id) || [])];
 
-        // Filtramos: 
-        // 1. Si es permiso de caso Y el caso ya está asignado -> NO LO MUESTRES
-        // 2. Si es permiso de Info Personal Y el trabajador ya tiene un caso asignado de ese cliente -> NO LO MUESTRES
         const filteredPerms = (perms || []).filter(p => {
             if (p.tipo === 'acceso_caso' && assignedCaseIds.includes(p.caso_id)) return false;
             if (p.tipo === 'info_personal' && assignedClientIds.includes(p.cliente_id)) return false;
