@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../services/supabaseClient';
 
-// --- Iconos para la línea de tiempo ---
 const CheckIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-5 h-5 pointer-events-none"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>;
 const XMarkIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-5 h-5 pointer-events-none"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>;
 const TrashIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 pointer-events-none"><path strokeLinecap="round" strokeLinejoin="round" d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2M10 11v6M14 11v6" /></svg>;
@@ -9,21 +8,17 @@ const DocumentIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" v
 
 const scrollbarStyle = "overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-zinc-800 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-zinc-700 transition-colors";
 
-// --- Sub-Componente Modal Reutilizable ---
 const Modal: React.FC<{ isOpen: boolean; onClose: () => void; children: React.ReactNode }> = ({ isOpen, onClose, children }) => {
     if (!isOpen) return null;
     return <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4 font-mono"><div className="bg-black border border-zinc-800 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] relative">{children}</div></div>;
 };
 
-interface ApprovalsViewProps {
-    setActiveView: (viewConfig: { name: string; params?: any }) => void;
-}
+interface ApprovalsViewProps { setActiveView: (viewConfig: { name: string; params?: any }) => void; }
 
 const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
     const [notifications, setNotifications] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
-    // Estados para la Línea de Tiempo dentro de Aprobaciones
     const [activeCaseHistory, setActiveCaseHistory] = useState<any | null>(null);
     const [caseUpdates, setCaseUpdates] = useState<any[]>([]);
     const [rejectDialog, setRejectDialog] = useState<{ isOpen: boolean; updateId: string }>({ isOpen: false, updateId: '' });
@@ -46,7 +41,7 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
                 id, tipo, created_at,
                 trabajador:profiles!peticiones_acceso_trabajador_id_fkey(primer_nombre, primer_apellido, rol),
                 cliente:profiles!peticiones_acceso_cliente_id_fkey(primer_nombre, primer_apellido),
-                caso:cases!peticiones_acceso_caso_id_fkey(titulo)
+                caso:cases!peticiones_acceso_caso_id_fkey(id, titulo)
             `)
             .eq('estado', 'pendiente');
 
@@ -59,24 +54,20 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
         setLoading(false);
     };
 
-    useEffect(() => {
-        fetchApprovals();
-    }, []);
+    useEffect(() => { fetchApprovals(); }, []);
 
-    // --- FUNCIONES PARA PETICIONES (PERMISOS DE CENSURA) ---
+    // 1. SOLUCIÓN: Botones de Aprobar Permiso / Denegar funcionales
     const handleApprovePetition = async (id: string) => {
-        const { error } = await supabase.from('peticiones_acceso').update({ estado: 'aprobado' }).eq('id', id);
-        if (!error) setNotifications(prev => prev.filter(n => !(n._type === 'petition' && n.id === id)));
-        else alert(error.message);
+        await supabase.from('peticiones_acceso').update({ estado: 'aprobado' }).eq('id', id);
+        fetchApprovals();
     };
 
     const handleRejectPetition = async (id: string) => {
-        const { error } = await supabase.from('peticiones_acceso').update({ estado: 'rechazado' }).eq('id', id);
-        if (!error) setNotifications(prev => prev.filter(n => !(n._type === 'petition' && n.id === id)));
-        else alert(error.message);
+        await supabase.from('peticiones_acceso').update({ estado: 'rechazado' }).eq('id', id);
+        fetchApprovals();
     };
 
-    // --- FUNCIONES PARA HISTORIAL DE CASOS (ARCHIVOS SUBIDOS) ---
+    // 2. SOLUCIÓN: Abrir Línea de tiempo
     const openCaseHistory = async (caso: any) => {
         setActiveCaseHistory(caso);
         const { data } = await supabase.from('case_updates').select('*').eq('case_id', caso.id).order('created_at', { ascending: false });
@@ -86,7 +77,7 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
     const handleApproveUpdate = async (updateId: string) => {
         await supabase.from('case_updates').update({ estado_aprobacion: 'aprobado', observacion: null }).eq('id', updateId);
         setCaseUpdates(prev => prev.map(u => u.id === updateId ? { ...u, estado_aprobacion: 'aprobado', observacion: null } : u));
-        fetchApprovals(); // Refresca la lista de notificaciones de fondo
+        fetchApprovals();
     };
 
     const confirmRejectUpdate = async () => {
@@ -95,7 +86,7 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
         setCaseUpdates(prev => prev.map(u => u.id === rejectDialog.updateId ? { ...u, estado_aprobacion: 'rechazado', observacion: rejectReason } : u));
         setRejectDialog({ isOpen: false, updateId: '' });
         setRejectReason('');
-        fetchApprovals(); // Refresca la lista de notificaciones
+        fetchApprovals();
     };
 
     const handleDeleteUpdate = async (update: any) => {
@@ -103,7 +94,7 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
         if (update.file_url) { const path = update.file_url.split('case_files/')[1]; if (path) await supabase.storage.from('case_files').remove([path]); }
         await supabase.from('case_updates').delete().eq('id', update.id);
         setCaseUpdates(prev => prev.filter(u => u.id !== update.id));
-        fetchApprovals(); // Refresca la lista
+        fetchApprovals();
     };
 
     return (
@@ -112,9 +103,7 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
                 <h1 className="text-3xl font-black uppercase tracking-tighter italic">Centro de Aprobaciones</h1>
             </header>
 
-            {loading ? (
-                <p className="text-zinc-500">Buscando notificaciones...</p>
-            ) : notifications.length === 0 ? (
+            {loading ? ( <p className="text-zinc-500">Buscando notificaciones...</p> ) : notifications.length === 0 ? (
                 <div className="bg-black border border-zinc-900 p-8 text-center text-zinc-500">
                     <p>No hay aprobaciones ni peticiones pendientes en este momento.</p>
                 </div>
@@ -122,7 +111,6 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
                 <div className="space-y-4">
                     {notifications.map((item) => {
                         
-                        // RENDERIZAR NOTIFICACIÓN DE ARCHIVO SUBIDO
                         if (item._type === 'update') {
                             const trabajador = item.perfil;
                             const caso = item.caso;
@@ -134,19 +122,13 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
                                     <p className="text-zinc-400 text-sm leading-relaxed">
                                         <strong className="text-white uppercase">TRABAJADOR: {trabajador?.primer_nombre} {trabajador?.primer_apellido}</strong> requiere aprobación en nuevo archivo cargado con el cliente <strong className="text-white uppercase">{cliente?.primer_nombre} {cliente?.primer_apellido}</strong> en el caso <strong className="text-white uppercase">{caso?.titulo}</strong>.
                                     </p>
-                                    
-                                    {/* BOTÓN PARA ABRIR EL MODAL DIRECTAMENTE */}
-                                    <button 
-                                        onClick={() => openCaseHistory(caso)}
-                                        className="text-yellow-500 hover:text-yellow-400 text-[10px] uppercase font-bold mt-4 tracking-widest transition-colors"
-                                    >
+                                    <button onClick={() => openCaseHistory(caso)} className="text-yellow-500 hover:text-yellow-400 text-[10px] uppercase font-bold mt-4 tracking-widest transition-colors">
                                         REVISAR REQUERIMIENTO ›
                                     </button>
                                 </div>
                             );
                         }
 
-                        // RENDERIZAR NOTIFICACIÓN DE PETICIÓN DE ACCESO (CENSURA)
                         if (item._type === 'petition') {
                             const trabajador = item.trabajador;
                             const cliente = item.cliente;
@@ -158,8 +140,6 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
                                     <p className="text-zinc-400 text-sm leading-relaxed">
                                         <strong className="text-white uppercase">TRABAJADOR: {trabajador?.primer_nombre} {trabajador?.primer_apellido}</strong> solicita acceso a <strong className="text-white uppercase">{tipoMsg}</strong> del cliente <strong className="text-white uppercase">{cliente?.primer_nombre} {cliente?.primer_apellido}</strong>.
                                     </p>
-                                    
-                                    {/* BOTONES CONECTADOS Y FUNCIONALES */}
                                     <div className="flex gap-6 mt-4">
                                         <button onClick={() => handleApprovePetition(item.id)} className="text-[10px] font-bold uppercase tracking-widest text-green-500 hover:text-green-400 transition-colors">
                                             Aprobar Permiso
@@ -176,7 +156,6 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
                 </div>
             )}
 
-            {/* MODAL HISTORIAL DEL CASO (Incrustado directamente en Aprobaciones) */}
             <Modal isOpen={!!activeCaseHistory} onClose={() => setActiveCaseHistory(null)}>
                 {activeCaseHistory && (
                     <div className="flex flex-col h-[85vh]">
@@ -205,14 +184,16 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
                                                 {isApproved && <span className="bg-green-900/30 text-green-500 text-[8px] uppercase px-1 py-0.5 rounded font-bold">Aprobado</span>}
                                             </div>
                                             
-                                            {/* BOTONES DE APROBACIÓN */}
-                                            {!isApproved && (
-                                                <div className="flex gap-4 opacity-0 group-hover/item:opacity-100 transition-opacity items-center">
+                                            <div className="flex gap-4 opacity-0 group-hover/item:opacity-100 transition-opacity items-center">
+                                                {/* SOLUCIÓN: Si está rechazado, el botón de aprobar desaparece */}
+                                                {!isApproved && !isRejected && (
                                                     <button onClick={() => handleApproveUpdate(u.id)} className="text-green-600 hover:text-green-400" title="Aprobar"><CheckIcon /></button>
-                                                    <button onClick={() => setRejectDialog({ isOpen: true, updateId: u.id })} className="text-red-500 hover:text-red-400" title="Rechazar"><XMarkIcon /></button>
-                                                    <button onClick={() => handleDeleteUpdate(u)} className="text-zinc-600 hover:text-red-500 transition-colors ml-2" title="Eliminar"><TrashIcon /></button>
-                                                </div>
-                                            )}
+                                                )}
+                                                {!isApproved && (
+                                                    <button onClick={() => setRejectDialog({ isOpen: true, updateId: u.id })} className="text-red-500 hover:text-red-400" title="Mandar a corregir (Rechazar)"><XMarkIcon /></button>
+                                                )}
+                                                <button onClick={() => handleDeleteUpdate(u)} className="text-zinc-600 hover:text-red-500 transition-colors ml-2" title="Eliminar"><TrashIcon /></button>
+                                            </div>
                                         </div>
                                         
                                         <p className="text-sm text-zinc-300 mt-1">{u.descripcion}</p>
@@ -237,7 +218,6 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
                 )}
             </Modal>
 
-            {/* MODAL MOTIVO DE RECHAZO */}
             <Modal isOpen={rejectDialog.isOpen} onClose={() => { setRejectDialog({ isOpen: false, updateId: '' }); setRejectReason(''); }}>
                 <div className="p-8">
                     <h2 className="text-xl font-bold mb-6 italic tracking-widest uppercase text-red-500">Motivo de Rechazo</h2>
