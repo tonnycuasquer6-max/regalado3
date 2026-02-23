@@ -183,7 +183,6 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
         setSelectedCaseIds(misAsignaciones ? misAsignaciones.map(a => a.case_id) : []);
     };
 
-    // --- CORRECCIÓN EN EL GUARDADO DE ASIGNACIONES (Checkboxs Modal) ---
     const handleSaveAssignments = async () => {
         if (!assignLawyer || !selectedAssignClient) return;
         setActionLoading(true);
@@ -191,19 +190,15 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
         const unassignedCases = assignCasesList.filter(c => !selectedCaseIds.includes(c.id));
         
         for (let c of unassignedCases) { 
-            // Eliminar asignación de la base de datos
             await supabase.from('asignaciones_casos').delete().match({ case_id: c.id, abogado_id: assignLawyer.id }); 
-            // SOLUCIÓN AL ERROR: Eliminar también la visibilidad activa de este caso si existía
             await supabase.from('peticiones_acceso').delete().match({ caso_id: c.id, trabajador_id: assignLawyer.id });
         }
 
-        // SOLUCIÓN AL ERROR: Si el trabajador se queda con 0 casos de este cliente, bloquear la visibilidad de su info personal
         if (selectedCaseIds.length === 0) {
             await supabase.from('peticiones_acceso').delete().match({ cliente_id: selectedAssignClient.id, trabajador_id: assignLawyer.id });
         }
 
         for (let caseId of selectedCaseIds) { 
-            // Insertar solo si no está asignado previamente
             const { data: existing } = await supabase.from('asignaciones_casos').select('id').match({ case_id: caseId, abogado_id: assignLawyer.id });
             if (!existing || existing.length === 0) {
                 await supabase.from('asignaciones_casos').insert({ case_id: caseId, abogado_id: assignLawyer.id }); 
@@ -314,8 +309,18 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
         });
     };
 
+    // SOLUCIÓN: Agrupación segura para evitar el error de pantalla negra por cliente nulo
     const groupedPermissions = activePermissions.reduce((acc, perm) => {
-        if (!acc[perm.cliente_id]) acc[perm.cliente_id] = { cliente: perm.cliente, info_personal: null, casos: [] };
+        if (!perm.cliente_id) return acc; 
+        
+        if (!acc[perm.cliente_id]) {
+            acc[perm.cliente_id] = { 
+                cliente_id: perm.cliente_id, 
+                cliente: perm.cliente || {}, 
+                info_personal: null, 
+                casos: [] 
+            };
+        }
         if (perm.tipo === 'info_personal') acc[perm.cliente_id].info_personal = perm;
         if (perm.tipo === 'acceso_caso') acc[perm.cliente_id].casos.push(perm);
         return acc;
@@ -542,13 +547,13 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
                     <div className={`space-y-4 pr-2 flex-grow ${scrollbarStyle}`}>
                         {Object.values(groupedPermissions).length === 0 && <p className="text-zinc-500 italic text-sm">Este trabajador no tiene permisos de visibilidad activos adicionales a sus asignaciones.</p>}
                         
-                        {Object.values(groupedPermissions).map(({cliente, info_personal, casos}: any) => (
-                            <div key={cliente.id} className="bg-zinc-950 border border-zinc-800 flex flex-col">
+                        {Object.values(groupedPermissions).map(({cliente_id, cliente, info_personal, casos}: any) => (
+                            <div key={cliente_id} className="bg-zinc-950 border border-zinc-800 flex flex-col">
                                 
                                 <div className="p-4 bg-zinc-900 border-b border-zinc-800 flex justify-between items-center group">
                                     <div>
                                         <p className="text-white font-bold uppercase tracking-widest text-xs">INFO. PERSONAL</p>
-                                        <p className="text-zinc-500 text-[10px] mt-1 tracking-widest uppercase">Cliente: {cliente.primer_nombre} {cliente.primer_apellido}</p>
+                                        <p className="text-zinc-500 text-[10px] mt-1 tracking-widest uppercase">Cliente: {cliente?.primer_nombre || 'N/A'} {cliente?.primer_apellido || ''}</p>
                                     </div>
                                     {info_personal && (
                                         <button onClick={() => handleRevokePermission(info_personal)} className="text-zinc-600 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100" title="Bloquear Visibilidad Personal y Casos vinculados">

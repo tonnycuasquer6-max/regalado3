@@ -36,10 +36,11 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
     const [loading, setLoading] = useState(true);
     const [actionLoading, setActionLoading] = useState(false);
 
-    // Formulario Crear Cliente (2 Pasos)
+    // Formulario Crear Cliente
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [formStep, setFormStep] = useState(1);
     const [imagePreview, setImagePreview] = useState<string | null>(null);
+    const [imageFile, setImageFile] = useState<File | null>(null);
     const [newClientData, setNewClientData] = useState({ primer_nombre: '', segundo_nombre: '', primer_apellido: '', segundo_apellido: '', cedula: '', email: '' });
     const [clientPassword, setClientPassword] = useState('');
     const photoInputRef = useRef<HTMLInputElement>(null);
@@ -86,26 +87,43 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
         setActionLoading(false);
     };
 
+    // SOLUCIÓN: Guardamos el cliente directamente en la tabla de peticiones (temporales) y no en profiles
     const handleCreateClient = async (e: React.FormEvent) => {
         e.preventDefault();
         setActionLoading(true);
-        const newId = crypto.randomUUID(); 
 
-        const { error } = await supabase.from('profiles').insert({
-            id: newId,
-            ...newClientData,
-            rol: 'cliente',
-            categoria_usuario: 'cliente',
-            estado_aprobacion: 'pendiente',
-            creado_por: session.user.id,
-            archivo_registro: clientPassword // Guardamos la contraseña temporalmente aquí
+        let final_photo_url = null;
+        if (imageFile) {
+            const filePath = `profile_pics/${Date.now()}_${imageFile.name}`;
+            const { error: uploadError } = await supabase.storage.from('profiles').upload(filePath, imageFile);
+            if (!uploadError) {
+                const { data } = supabase.storage.from('profiles').getPublicUrl(filePath);
+                final_photo_url = data.publicUrl;
+            }
+        }
+
+        // Insertamos en peticiones_acceso (No hay problema de foreign key aquí)
+        const { error } = await supabase.from('peticiones_acceso').insert({
+            trabajador_id: session.user.id,
+            tipo: 'nuevo_cliente',
+            estado: 'pendiente',
+            temp_email: newClientData.email,
+            temp_password: clientPassword,
+            temp_primer_nombre: newClientData.primer_nombre,
+            temp_segundo_nombre: newClientData.segundo_nombre,
+            temp_primer_apellido: newClientData.primer_apellido,
+            temp_segundo_apellido: newClientData.segundo_apellido,
+            temp_cedula: newClientData.cedula,
+            temp_foto_url: final_photo_url
         });
 
-        if (error) alert(error.message);
-        else {
+        if (error) {
+            alert(`Error al enviar a revisión: ${error.message}`);
+        } else {
             setIsCreateModalOpen(false);
             setFormStep(1);
             setImagePreview(null);
+            setImageFile(null);
             setNewClientData({ primer_nombre: '', segundo_nombre: '', primer_apellido: '', segundo_apellido: '', cedula: '', email: '' });
             setClientPassword('');
             await fetchData();
@@ -115,6 +133,7 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
 
     const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
+            setImageFile(e.target.files[0]);
             setImagePreview(URL.createObjectURL(e.target.files[0]));
         }
     };
@@ -150,7 +169,7 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
 
     if (loading) return <div className="text-center p-12 text-zinc-500 animate-pulse">Cargando base de datos segura...</div>;
 
-    // SOLUCIÓN: Expresión regular que obliga a que sean exactamente 6 números idénticos (ej. 555555)
+    const pendingNewClients = petitions.filter(p => p.tipo === 'nuevo_cliente' && p.estado === 'pendiente');
     const isPasswordValid = /^(\d)\1{5}$/.test(clientPassword);
 
     return (
@@ -167,7 +186,27 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {clients.length === 0 && <p className="text-zinc-500 text-sm">No hay clientes registrados en el sistema.</p>}
+                {pendingNewClients.map(pet => (
+                    <div key={pet.id} className="bg-black border border-zinc-800 p-6 flex flex-col relative overflow-hidden opacity-50 grayscale">
+                        <div className="absolute top-4 right-4 bg-yellow-900/50 text-yellow-500 border border-yellow-900 px-3 py-1 text-[8px] font-black uppercase tracking-widest">
+                            En Revisión de Admin
+                        </div>
+                        <div className="flex justify-between items-start mb-6">
+                            <div>
+                                <h3 className="text-xl font-bold uppercase tracking-widest text-white flex items-center gap-2">
+                                    <LockIcon />
+                                    {pet.temp_primer_nombre} {pet.temp_primer_apellido}
+                                </h3>
+                                <p className="text-zinc-500 text-xs font-mono mt-1">
+                                    {pet.temp_cedula} | {pet.temp_email}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                ))}
+
+                {clients.length === 0 && pendingNewClients.length === 0 && <p className="text-zinc-500 text-sm">No hay clientes registrados en el sistema.</p>}
+                
                 {clients.map(client => {
                     const infoPet = petitions.find(p => p.cliente_id === client.id && p.tipo === 'info_personal');
                     const autoClientAccess = assignedClients.includes(client.id);
@@ -313,7 +352,6 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
                                     <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">CONTRASEÑA PROVISIONAL</label>
                                     <input type="text" required value={clientPassword} onChange={e => setClientPassword(e.target.value)} className="w-full bg-transparent border-b border-zinc-800 text-white py-1 focus:outline-none focus:border-zinc-500" />
                                     <div className="mt-4 p-4 border border-zinc-900 bg-zinc-950/50">
-                                        {/* SOLUCIÓN: UI para indicar si la contraseña es correcta */}
                                         <p className={`text-[10px] font-bold tracking-widest uppercase transition-colors ${isPasswordValid ? 'text-white' : 'text-zinc-600'}`}>
                                             {isPasswordValid ? '✓ CUMPLE: 6 DÍGITOS IDÉNTICOS' : '✗ DEBE SER UN MISMO NÚMERO 6 VECES (Ej. 555555)'}
                                         </p>
@@ -329,7 +367,6 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
                         ) : (
                             <>
                                 <button type="button" onClick={() => setFormStep(1)} className="text-zinc-500 text-[10px] font-bold tracking-widest hover:text-white uppercase transition-colors">REGRESAR</button>
-                                {/* SOLUCIÓN: Botón bloqueado si la contraseña no cumple la regla de 6 dígitos iguales */}
                                 <button type="submit" disabled={actionLoading || !isPasswordValid} className="bg-white text-black font-bold py-3 px-8 text-[10px] tracking-widest uppercase hover:bg-zinc-300 transition-colors disabled:opacity-50">ENVIAR A REVISIÓN</button>
                             </>
                         )}
@@ -354,7 +391,6 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
                                     
                                     <div className="flex justify-between items-start">
                                         <p className="text-[10px] text-zinc-600 font-mono mb-1">{new Date(u.created_at).toLocaleString()}</p>
-                                        
                                         {u.estado_aprobacion === 'rechazado' && (
                                             <button type="button" onClick={() => { setEditingUpdate(u); setUpdateDesc(u.descripcion); }} className="text-zinc-600 hover:text-white transition-colors opacity-0 group-hover/item:opacity-100" title="Editar y reenviar"><PencilIcon /></button>
                                         )}
