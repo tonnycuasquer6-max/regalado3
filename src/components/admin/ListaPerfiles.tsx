@@ -183,12 +183,33 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
         setSelectedCaseIds(misAsignaciones ? misAsignaciones.map(a => a.case_id) : []);
     };
 
+    // --- CORRECCIÓN EN EL GUARDADO DE ASIGNACIONES (Checkboxs Modal) ---
     const handleSaveAssignments = async () => {
         if (!assignLawyer || !selectedAssignClient) return;
         setActionLoading(true);
+        
         const unassignedCases = assignCasesList.filter(c => !selectedCaseIds.includes(c.id));
-        for (let c of unassignedCases) { await supabase.from('asignaciones_casos').delete().match({ case_id: c.id, abogado_id: assignLawyer.id }); }
-        for (let caseId of selectedCaseIds) { await supabase.from('asignaciones_casos').insert({ case_id: caseId, abogado_id: assignLawyer.id }); }
+        
+        for (let c of unassignedCases) { 
+            // Eliminar asignación de la base de datos
+            await supabase.from('asignaciones_casos').delete().match({ case_id: c.id, abogado_id: assignLawyer.id }); 
+            // SOLUCIÓN AL ERROR: Eliminar también la visibilidad activa de este caso si existía
+            await supabase.from('peticiones_acceso').delete().match({ caso_id: c.id, trabajador_id: assignLawyer.id });
+        }
+
+        // SOLUCIÓN AL ERROR: Si el trabajador se queda con 0 casos de este cliente, bloquear la visibilidad de su info personal
+        if (selectedCaseIds.length === 0) {
+            await supabase.from('peticiones_acceso').delete().match({ cliente_id: selectedAssignClient.id, trabajador_id: assignLawyer.id });
+        }
+
+        for (let caseId of selectedCaseIds) { 
+            // Insertar solo si no está asignado previamente
+            const { data: existing } = await supabase.from('asignaciones_casos').select('id').match({ case_id: caseId, abogado_id: assignLawyer.id });
+            if (!existing || existing.length === 0) {
+                await supabase.from('asignaciones_casos').insert({ case_id: caseId, abogado_id: assignLawyer.id }); 
+            }
+        }
+        
         setActionLoading(false);
         setAssignLawyer(null);
     };
@@ -217,10 +238,7 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
             title: '¿DESASIGNAR CASO?',
             message: 'Se quitará este caso de la lista del abogado y se revocarán los permisos extra sobre él.',
             onConfirm: async () => {
-                // Borra la asignación
                 await supabase.from('asignaciones_casos').delete().match({ case_id: caseId, abogado_id: viewAssignedProfile?.id });
-                
-                // SOLUCIÓN PUNTO 1: Quitar visibilidad activa de ese caso también
                 await supabase.from('peticiones_acceso').delete().match({ caso_id: caseId, trabajador_id: viewAssignedProfile?.id });
 
                 setAssignedClientsDict(prev => {
@@ -252,8 +270,6 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
                 for (let c of casesToRemove) {
                     await supabase.from('asignaciones_casos').delete().match({ case_id: c.id, abogado_id: viewAssignedProfile?.id });
                 }
-
-                // SOLUCIÓN PUNTO 1: Quitar toda visibilidad activa para este cliente (Info personal y Casos)
                 await supabase.from('peticiones_acceso').delete().match({ cliente_id: clientId, trabajador_id: viewAssignedProfile?.id });
             }
         });
