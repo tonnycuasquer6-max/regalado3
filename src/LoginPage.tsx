@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { supabase } from './services/supabaseClient';
 
@@ -68,6 +67,23 @@ const LoginPage: React.FC<LoginPageProps> = ({ setIsAwaitingMfa }) => {
         }
         
         if (data.session) {
+            const userId = data.session.user.id;
+            
+            // --- SOLUCIÓN: SEGURIDAD Y REGISTRO DE ACCESO ---
+            try {
+                // 1. Crear Token Único para este dispositivo
+                const deviceToken = crypto.randomUUID();
+                localStorage.setItem('deviceToken', deviceToken);
+
+                // 2. Guardar registro en el historial para la campanita del Admin
+                await supabase.from('registro_accesos').insert({ user_id: userId });
+
+                // 3. Forzar sesión única (si hay otra, la sobreescribe y el otro dispositivo se cerrará)
+                await supabase.from('sesion_unica').upsert({ user_id: userId, token_dispositivo: deviceToken });
+            } catch (err) {
+                console.error("Error de auditoría de sesión:", err);
+            }
+
             setIsAwaitingMfa(false);
         } else {
             setError("Fallo de sesión.");
