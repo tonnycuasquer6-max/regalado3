@@ -2,10 +2,9 @@ import React, { useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import UserManagementView from './UserManagementView';
 import ApprovalsView from './ApprovalsView';
-import MasterCalendarView from './MasterCalendarView';
 import ReportsView from './ReportsView';
 import AdminHome from './AdminHome';
-import TimeBillingMaestro from './TimeBillingMaestro'; // <-- Importamos tu súper calendario
+import TimeBillingMaestro from './TimeBillingMaestro';
 import ListaPerfiles from './ListaPerfiles';
 
 interface ViewConfig {
@@ -25,12 +24,10 @@ const AdminDashboard: React.FC<{ session: Session }> = ({ session }) => {
             case 'PROFILES':
                 return <ListaPerfiles {...params} onCancel={() => setActiveViewConfig({ name: 'HOME' })} />;
             case 'APPROVALS':
-                return <ApprovalsView setActiveView={setActiveViewConfig} />;
-            case 'CALENDAR':
-                return <MasterCalendarView />;
+                return <ApprovalsView setActiveView={setActiveViewConfig} onCancel={() => setActiveViewConfig({ name: 'HOME' })} />;
             case 'REPORTS':
-                return <ReportsView />;
-            case 'TIME_BILLING': // <-- AQUÍ ESTÁ LA MAGIA: Ahora escucha exactamente lo que tu botón manda
+                return <ReportsView onCancel={() => setActiveViewConfig({ name: 'HOME' })} />;
+            case 'TIME_BILLING': 
                 return <TimeBillingMaestro onCancel={() => setActiveViewConfig({ name: 'HOME' })} />;
             default:
                 return null;

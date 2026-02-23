@@ -14,9 +14,12 @@ const Modal: React.FC<{ isOpen: boolean; onClose: () => void; children: React.Re
     return <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4 font-mono"><div className="bg-black border border-zinc-800 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] relative">{children}</div></div>;
 };
 
-interface ApprovalsViewProps { setActiveView: (viewConfig: { name: string; params?: any }) => void; }
+interface ApprovalsViewProps { 
+    setActiveView: (viewConfig: { name: string; params?: any }) => void; 
+    onCancel?: () => void; 
+}
 
-const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
+const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView, onCancel }) => {
     const [notifications, setNotifications] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -32,7 +35,6 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
         setLoading(true);
         const { data: updatesData } = await supabase.from('case_updates').select(`id, created_at, estado_aprobacion, perfil:profiles!case_updates_perfil_id_fkey(primer_nombre, primer_apellido, rol), caso:cases!case_id(id, titulo, cliente:profiles!cliente_id(primer_nombre, primer_apellido))`).eq('estado_aprobacion', 'pendiente');
 
-        // SOLUCIÓN 1: Nos aseguramos de traer trabajador_id para asignarlo como creado_por
         const { data: petitionsData } = await supabase.from('peticiones_acceso').select(`id, tipo, created_at, trabajador_id, temp_email, temp_password, temp_primer_nombre, temp_segundo_nombre, temp_primer_apellido, temp_segundo_apellido, temp_cedula, temp_foto_url, trabajador:profiles!peticiones_acceso_trabajador_id_fkey(primer_nombre, primer_apellido, rol), cliente:profiles!peticiones_acceso_cliente_id_fkey(primer_nombre, primer_apellido), caso:cases!peticiones_acceso_caso_id_fkey(id, titulo)`).eq('estado', 'pendiente');
 
         let combined: any[] = [];
@@ -46,7 +48,6 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
 
     useEffect(() => { fetchApprovals(); }, []);
 
-    // SOLUCIÓN 2: Lógica de guardado con retardo y UPDATE para no chocar con el trigger de Supabase
     const handleApproveClient = async (item: any) => {
         try {
             const url = (supabase as any).supabaseUrl;
@@ -63,10 +64,8 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
 
             const userId = authData.user?.id;
             if (userId) {
-                // Esperamos 800 milisegundos para asegurar que Supabase creó el perfil en blanco base
                 await new Promise(resolve => setTimeout(resolve, 800));
 
-                // Usamos UPDATE en lugar de insert/upsert para inyectarle la información sin generar choques
                 const { error: profileError } = await supabase.from('profiles').update({
                     primer_nombre: item.temp_primer_nombre,
                     segundo_nombre: item.temp_segundo_nombre,
@@ -82,7 +81,6 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
                 
                 if (profileError) throw profileError;
                 
-                // Borramos la petición exitosamente
                 await supabase.from('peticiones_acceso').delete().eq('id', item.id);
                 fetchApprovals();
             }
@@ -154,6 +152,10 @@ const ApprovalsView: React.FC<ApprovalsViewProps> = ({ setActiveView }) => {
         <div className="max-w-4xl mx-auto animate-in fade-in duration-500 font-mono text-white">
             <header className="flex items-center justify-between mb-8 pb-4 border-b border-zinc-900">
                 <h1 className="text-3xl font-black uppercase tracking-tighter italic">Centro de Aprobaciones</h1>
+                {/* BOTÓN VOLVER */}
+                <button onClick={() => onCancel ? onCancel() : setActiveView({ name: 'HOME' })} className="text-zinc-400 hover:text-white font-black py-2 px-6 transition-colors uppercase text-[10px] tracking-[0.3em]">
+                    Volver
+                </button>
             </header>
 
             {loading ? ( <p className="text-zinc-500">Buscando notificaciones...</p> ) : notifications.length === 0 ? (
