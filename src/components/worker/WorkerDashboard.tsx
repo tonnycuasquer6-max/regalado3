@@ -24,7 +24,7 @@ const Modal: React.FC<{ isOpen: boolean; onClose: () => void; children: React.Re
 };
 
 // ==========================================
-// VISTA 1: DIRECTORIO DE CLIENTES (CENSURA Y PETICIONES)
+// VISTA 1: DIRECTORIO DE CLIENTES
 // ==========================================
 const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
     const [clients, setClients] = useState<any[]>([]);
@@ -36,7 +36,6 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
     const [loading, setLoading] = useState(true);
     const [actionLoading, setActionLoading] = useState(false);
 
-    // Formulario Crear Cliente
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [formStep, setFormStep] = useState(1);
     const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -45,7 +44,6 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
     const [clientPassword, setClientPassword] = useState('');
     const photoInputRef = useRef<HTMLInputElement>(null);
 
-    // Modal Historial de Caso
     const [activeCaseHistory, setActiveCaseHistory] = useState<any | null>(null);
     const [caseUpdates, setCaseUpdates] = useState<any[]>([]);
     const [updateDesc, setUpdateDesc] = useState('');
@@ -87,7 +85,6 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
         setActionLoading(false);
     };
 
-    // SOLUCIÓN: Guardamos el cliente directamente en la tabla de peticiones (temporales) y no en profiles
     const handleCreateClient = async (e: React.FormEvent) => {
         e.preventDefault();
         setActionLoading(true);
@@ -102,7 +99,6 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
             }
         }
 
-        // Insertamos en peticiones_acceso (No hay problema de foreign key aquí)
         const { error } = await supabase.from('peticiones_acceso').insert({
             trabajador_id: session.user.id,
             tipo: 'nuevo_cliente',
@@ -591,9 +587,54 @@ const WorkerAssignedCasesView: React.FC<{ session: Session }> = ({ session }) =>
 // COMPONENTE PRINCIPAL DEL DASHBOARD
 // ==========================================
 const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
-    const [activeView, setActiveView] = useState('HOME');
+    
+    // SOLUCIÓN 1: Leer la memoria del navegador para no perder la vista al recargar
+    const [activeView, setActiveView] = useState(() => {
+        const savedView = sessionStorage.getItem('workerActiveView');
+        return savedView ? savedView : 'HOME';
+    });
+
     const [profileMenuOpen, setProfileMenuOpen] = useState(false);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+    const [workerProfilePic, setWorkerProfilePic] = useState<string | null>(null);
+
+    // Guardar en la memoria cada vez que se cambia de pestaña
+    useEffect(() => {
+        sessionStorage.setItem('workerActiveView', activeView);
+    }, [activeView]);
+
+    // SOLUCIÓN 2: Escáner Anti-Clonación de Sesiones y carga de foto de perfil
+    useEffect(() => {
+        const setupSecurityAndProfile = async () => {
+            // Cargar foto de perfil
+            const { data: profile } = await supabase.from('profiles').select('foto_url').eq('id', session.user.id).single();
+            if (profile && profile.foto_url) setWorkerProfilePic(profile.foto_url);
+
+            // Escáner Anti-Clonación
+            const localToken = localStorage.getItem('deviceToken');
+            if (localToken) {
+                const { data: sesion } = await supabase.from('sesion_unica').select('token_dispositivo').eq('user_id', session.user.id).single();
+                if (sesion && sesion.token_dispositivo !== localToken) {
+                    await supabase.auth.signOut();
+                    window.location.reload();
+                }
+
+                const sessionChannel = supabase.channel('worker_sesion_activa')
+                    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'sesion_unica', filter: `user_id=eq.${session.user.id}` }, (payload) => {
+                        if (payload.new.token_dispositivo !== localToken) {
+                            supabase.auth.signOut().then(() => {
+                                alert("Sesión cerrada automáticamente: Se ha iniciado sesión en otro dispositivo.");
+                                window.location.reload();
+                            });
+                        }
+                    }).subscribe();
+
+                return () => { supabase.removeChannel(sessionChannel); }
+            }
+        };
+
+        setupSecurityAndProfile();
+    }, [session.user.id]);
 
     const handleMenuClick = (view: string) => {
         setActiveView(view);
@@ -642,26 +683,33 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
                 <div className="flex items-center justify-end gap-6 w-32 relative">
                     <button className="text-zinc-500 hover:text-white transition-colors relative">
                         <BellIcon />
-                        <span className="absolute top-0 right-0 w-2 h-2 bg-red-500 rounded-full"></span>
                     </button>
                     
                     <div className="relative">
-                        <button onClick={() => setProfileMenuOpen(true)} className="w-10 h-10 rounded-full bg-zinc-900 border border-zinc-700 flex items-center justify-center hover:border-zinc-400 transition-colors">
-                            <UserIcon className="w-6 h-6 text-zinc-400 pointer-events-none" />
+                        <button onClick={() => setProfileMenuOpen(true)} className="w-10 h-10 rounded-full border-2 border-zinc-700 flex items-center justify-center hover:border-white transition-all overflow-hidden bg-zinc-900">
+                            {workerProfilePic ? (
+                                <img src={workerProfilePic} alt="Perfil" className="w-full h-full object-cover" />
+                            ) : (
+                                <UserIcon className="w-6 h-6 text-zinc-400 pointer-events-none" />
+                            )}
                         </button>
 
                         {profileMenuOpen && (
                             <>
                                 <div className="fixed inset-0 z-40" onClick={() => setProfileMenuOpen(false)}></div>
-                                <div className="absolute right-0 mt-4 w-48 bg-black border border-zinc-800 shadow-2xl z-50 flex flex-col relative">
-                                    <div className="p-4 border-b border-zinc-900">
+                                <div className="absolute right-0 mt-4 w-48 bg-black/80 backdrop-blur-md shadow-2xl shadow-black/90 rounded-xl py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-300 overflow-hidden">
+                                    <div className="p-4 border-b border-zinc-800/50">
                                         <p className="text-[10px] text-zinc-500 uppercase tracking-widest mb-1">Sesión activa</p>
                                         <p className="text-xs font-bold text-white truncate">{session.user.email}</p>
                                     </div>
-                                    <button onClick={() => handleMenuClick('PROFILE')} className="w-full text-left px-4 py-3 text-xs font-bold uppercase tracking-widest text-zinc-400 hover:text-white hover:bg-zinc-900 transition-colors">
+                                    <button onClick={() => handleMenuClick('PROFILE')} className="w-full text-left px-5 py-3 text-sm font-bold uppercase tracking-widest text-zinc-400 hover:text-white hover:bg-white/5 transition-colors">
                                         Perfil
                                     </button>
-                                    <button onClick={() => { setProfileMenuOpen(false); supabase.auth.signOut(); }} className="w-full text-left px-4 py-3 text-xs font-bold uppercase tracking-widest text-red-500 hover:bg-red-950/30 transition-colors">
+                                    <button onClick={async () => { 
+                                        setProfileMenuOpen(false); 
+                                        localStorage.removeItem('deviceToken');
+                                        await supabase.auth.signOut(); 
+                                    }} className="w-full text-left px-5 py-3 text-sm font-bold uppercase tracking-widest text-red-400 hover:bg-white/5 transition-colors">
                                         Cerrar Sesión
                                     </button>
                                 </div>
@@ -672,7 +720,7 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
             </header>
 
             {mobileMenuOpen && (
-                <div className="fixed inset-0 bg-black z-[100] flex flex-col font-mono p-6">
+                <div className="fixed inset-0 bg-black/95 backdrop-blur-sm z-[100] flex flex-col font-mono p-6">
                     <div className="flex justify-between items-center mb-12">
                         <div className="font-black text-2xl tracking-[0.3em]">R&R</div>
                         <button onClick={() => setMobileMenuOpen(false)} className="text-zinc-500 hover:text-white">CERRAR</button>

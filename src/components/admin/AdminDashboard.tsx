@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import UserManagementView from './UserManagementView';
 import ApprovalsView from './ApprovalsView';
@@ -6,6 +6,7 @@ import ReportsView from './ReportsView';
 import AdminHome from './AdminHome';
 import TimeBillingMaestro from './TimeBillingMaestro';
 import ListaPerfiles from './ListaPerfiles';
+import AdminProfile from './AdminProfile'; // <-- IMPORTANTE: Nuestro archivo nuevo
 
 interface ViewConfig {
     name: string;
@@ -13,7 +14,15 @@ interface ViewConfig {
 }
 
 const AdminDashboard: React.FC<{ session: Session }> = ({ session }) => {
-    const [activeViewConfig, setActiveViewConfig] = useState<ViewConfig>({ name: 'HOME' });
+    
+    const [activeViewConfig, setActiveViewConfig] = useState<ViewConfig>(() => {
+        const savedView = sessionStorage.getItem('adminActiveView');
+        return savedView ? JSON.parse(savedView) : { name: 'HOME' };
+    });
+
+    useEffect(() => {
+        sessionStorage.setItem('adminActiveView', JSON.stringify(activeViewConfig));
+    }, [activeViewConfig]);
 
     const { name: activeView, params = {} } = activeViewConfig;
 
@@ -29,6 +38,8 @@ const AdminDashboard: React.FC<{ session: Session }> = ({ session }) => {
                 return <ReportsView onCancel={() => setActiveViewConfig({ name: 'HOME' })} />;
             case 'TIME_BILLING': 
                 return <TimeBillingMaestro onCancel={() => setActiveViewConfig({ name: 'HOME' })} />;
+            case 'PROFILE': // <-- RUTA NUEVA AL PERFIL
+                return <AdminProfile session={session} onCancel={() => setActiveViewConfig({ name: 'HOME' })} />;
             default:
                 return null;
         }
