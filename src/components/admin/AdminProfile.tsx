@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback, useRef, Fragment } from 'react
 import { supabase } from '../../services/supabaseClient';
 import type { Session } from '@supabase/supabase-js';
 
-// --- ICONOS ---
 const ChevronLeftIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>;
 const ChevronRightIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>;
 const ChevronUpIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" /></svg>;
@@ -13,7 +12,6 @@ const TrashIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" view
 
 const scrollbarStyle = "overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-zinc-800 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-zinc-700 transition-colors";
 
-// --- COMPONENTES UI ---
 const Modal: React.FC<{ isOpen: boolean; onClose: () => void; children: React.ReactNode }> = ({ isOpen, onClose, children }) => {
     if (!isOpen) return null;
     return <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4 font-mono"><div className="bg-black border border-zinc-800 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] relative">{children}</div></div>;
@@ -49,13 +47,13 @@ const NumberControl = ({ label, value, step, min, onChange, isMoney = false, pre
     return (
         <div>
             <label className={`block text-[10px] font-black mb-2 uppercase tracking-[0.3em] ${labelColor}`}>{label}</label>
-            <div className={`flex items-center bg-transparent border-b-2 transition-colors group pb-1 ${borderColor}`}>
-                <div className={`flex-grow flex justify-start items-center font-mono text-xl ${textColor}`}>
+            <div className={`flex items-center bg-transparent border-b py-1 transition-colors group ${borderColor}`}>
+                <div className={`flex-grow flex justify-start items-center font-mono text-base ${textColor}`}>
                     {prefix && <span className="mr-1 opacity-70">{prefix}</span>}
                     <input 
                         type="number" value={value.toFixed(2)} onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
                         className="w-full bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                        step={step} min={min}
+                        step="any" min={min}
                     />
                 </div>
                 <div className="flex flex-col ml-2 justify-center">
@@ -67,25 +65,21 @@ const NumberControl = ({ label, value, step, min, onChange, isMoney = false, pre
     );
 };
 
-// --- COMPONENTE PRINCIPAL ---
 const AdminProfile: React.FC<{ session: Session; onCancel: () => void }> = ({ session, onCancel }) => {
     const [profileData, setProfileData] = useState<any>(null);
     const [currentMonth, setCurrentMonth] = useState(new Date());
     const [timeEntries, setTimeEntries] = useState<any[]>([]);
     const [expenses, setExpenses] = useState<any[]>([]);
     
-    // Diccionarios para cruzar datos rápido
     const [clientsDict, setClientsDict] = useState<Record<string, any>>({});
     const [casesDict, setCasesDict] = useState<Record<string, any>>({});
     
     const [loading, setLoading] = useState(true);
     const [actionLoading, setActionLoading] = useState(false);
     
-    // Estado para saber qué cliente y qué pestaña está abierta
     const [showRecords, setShowRecords] = useState(false);
     const [activeClientTab, setActiveClientTab] = useState<{ id: string, tab: 'time' | 'expenses' | null }>({ id: '', tab: null });
 
-    // Estado del Formulario de Gastos
     const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
     const [expDesc, setExpDesc] = useState('');
     const [expAmount, setExpAmount] = useState<number>(0);
@@ -141,7 +135,12 @@ const AdminProfile: React.FC<{ session: Session; onCancel: () => void }> = ({ se
 
     const handleSaveExpense = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!expDesc || expAmount <= 0 || !expClientId || !expCaseId) return;
+        
+        if (!expDesc || expAmount <= 0 || !expClientId || !expCaseId) {
+            alert("Por favor completa todos los campos.\nAsegúrate de seleccionar un Cliente, un Caso Abierto, una Descripción y un Monto mayor a $0.");
+            return;
+        }
+
         setActionLoading(true);
 
         let fileUrl = null;
@@ -151,11 +150,16 @@ const AdminProfile: React.FC<{ session: Session; onCancel: () => void }> = ({ se
             if (!uploadError) {
                 const { data } = supabase.storage.from('comprobantes').getPublicUrl(fileName);
                 fileUrl = data.publicUrl;
+            } else {
+                alert(`Error al subir el archivo: ${uploadError.message}`);
+                setActionLoading(false);
+                return;
             }
         }
 
         const { error } = await supabase.from('gastos').insert({
             perfil_id: session.user.id,
+            trabajador_id: session.user.id,
             cliente_id: expClientId,
             caso_id: expCaseId,
             descripcion: expDesc,
@@ -168,6 +172,8 @@ const AdminProfile: React.FC<{ session: Session; onCancel: () => void }> = ({ se
             setIsExpenseModalOpen(false);
             setExpDesc(''); setExpAmount(0); setExpFile(null); setExpClientId(''); setExpCaseId('');
             fetchMonthData();
+        } else {
+            alert(`Error de base de datos: ${error.message}`);
         }
         setActionLoading(false);
     };
@@ -249,7 +255,6 @@ const AdminProfile: React.FC<{ session: Session; onCancel: () => void }> = ({ se
 
                 <div className="bg-black border border-zinc-800 shadow-2xl shadow-black/50 p-8">
                     
-                    {/* SOLUCIÓN: NAVEGADOR NORMAL (Ya no es sticky, fluye con la página) */}
                     <div className="flex items-center justify-between border-b border-zinc-900 pb-6 mb-8">
                         <button onClick={handlePrevMonth} className="p-2 text-zinc-500 hover:text-white transition-colors bg-zinc-950 border border-zinc-900 rounded-full"><ChevronLeftIcon /></button>
                         <h3 className="text-xl font-bold tracking-widest text-zinc-300">{monthName}</h3>
@@ -390,52 +395,67 @@ const AdminProfile: React.FC<{ session: Session; onCancel: () => void }> = ({ se
                     )}
                 </div>
 
-                {/* SOLUCIÓN: FORMULARIO SCROLLABLE COMPLETO HASTA EL BOTÓN */}
                 <Modal isOpen={isExpenseModalOpen} onClose={() => setIsExpenseModalOpen(false)}>
-                    <form onSubmit={handleSaveExpense} className="p-8 overflow-y-auto max-h-[85vh]">
-                        <h2 className="text-xl font-bold mb-8 italic tracking-widest uppercase text-white">REGISTRAR GASTO</h2>
-                        
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
-                            <div>
-                                <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">Trabajador</label>
-                                <div className="w-full py-2 px-0 bg-transparent border-b-2 border-zinc-800 text-white opacity-70">
-                                    {profileData?.primer_nombre} {profileData?.primer_apellido}
+                    <form onSubmit={handleSaveExpense} className="p-8 flex flex-col overflow-y-auto max-h-[90vh]">
+                        <h2 className="text-xl font-bold mb-6 italic tracking-widest uppercase text-white">REGISTRAR GASTO</h2>
+
+                        <div className="space-y-6 mb-8">
+                            <div className="grid grid-cols-2 gap-6">
+                                <div>
+                                    <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">Trabajador</label>
+                                    <input type="text" readOnly value={`${profileData?.primer_nombre || ''} ${profileData?.primer_apellido || ''}`} className="w-full bg-transparent border-b border-zinc-800 text-white py-2 opacity-70 focus:outline-none" />
+                                </div>
+                                <div>
+                                    <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">Fecha</label>
+                                    <input type="date" required value={expDate} onChange={(e: any) => setExpDate(e.target.value)} className="w-full bg-transparent border-b border-zinc-800 text-white py-2 focus:outline-none focus:border-zinc-500 [&::-webkit-calendar-picker-indicator]:invert" />
                                 </div>
                             </div>
 
-                            <InputField label="Fecha" type="date" value={expDate} onChange={(e: any) => setExpDate(e.target.value)} required />
-                            
-                            <SelectField label="Cliente" value={expClientId} onChange={(e: any) => setExpClientId(e.target.value)} options={clientOptions} required />
-                            <SelectField label="Caso" value={expCaseId} onChange={(e: any) => setExpCaseId(e.target.value)} options={filteredCases} disabled={!expClientId} required />
-
-                            <div className="md:col-span-2">
-                                <InputField label="Descripción del Gasto" value={expDesc} onChange={(e: any) => setExpDesc(e.target.value)} required />
+                            <div className="grid grid-cols-2 gap-6">
+                                <div>
+                                    <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">Cliente</label>
+                                    <select required value={expClientId} onChange={(e: any) => setExpClientId(e.target.value)} className="w-full bg-transparent border-b border-zinc-800 text-white py-2 focus:outline-none focus:border-zinc-500">
+                                        <option value="" className="bg-black">Seleccionar...</option>
+                                        {clientOptions.map((opt: any) => <option key={opt.id} value={opt.id} className="bg-black">{opt.primer_nombre} {opt.primer_apellido}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">Caso</label>
+                                    <select required disabled={!expClientId} value={expCaseId} onChange={(e: any) => setExpCaseId(e.target.value)} className="w-full bg-transparent border-b border-zinc-800 text-white py-2 focus:outline-none focus:border-zinc-500 disabled:opacity-50">
+                                        <option value="" className="bg-black">Seleccionar...</option>
+                                        {filteredCases.map((opt: any) => <option key={opt.id} value={opt.id} className="bg-black">{opt.titulo}</option>)}
+                                    </select>
+                                </div>
                             </div>
 
-                            <NumberControl 
-                                label="Monto Reembolsable" 
-                                value={expAmount} 
-                                step={0.25} 
-                                min={0} 
-                                onChange={setExpAmount} 
-                                prefix="$"
-                                isMoney={true}
-                            />
-
                             <div>
-                                <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">Factura (Opcional)</label>
-                                <div className="flex items-center gap-4 border-b-2 border-zinc-800 pb-1">
-                                    <input type="file" ref={fileInputRef} className="hidden" accept="image/*,.pdf" onChange={(e: any) => setExpFile(e.target.files ? e.target.files[0] : null)} />
-                                    <button type="button" onClick={() => fileInputRef.current?.click()} className={`text-zinc-600 hover:text-white transition-colors p-1 ${expFile ? 'text-green-500' : ''}`}>
-                                        <PaperClipIcon />
-                                    </button>
-                                    <span className="text-xs text-zinc-400 font-mono truncate">{expFile ? expFile.name : 'Ningún archivo adjunto'}</span>
+                                <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">Descripción (Qué se compró / pagó)</label>
+                                <input type="text" required value={expDesc} onChange={e => setExpDesc(e.target.value)} className="w-full bg-transparent border-b border-zinc-800 text-white py-2 focus:outline-none focus:border-zinc-500" />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-6 items-start">
+                                <NumberControl
+                                    label="Monto Reembolsable ($)"
+                                    value={expAmount}
+                                    step={0.25}
+                                    min={0.01}
+                                    onChange={setExpAmount}
+                                    isMoney={true}
+                                />
+                                <div>
+                                    <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">Factura (Opcional)</label>
+                                    <div className="flex items-center gap-4 mt-2">
+                                        <input type="file" ref={fileInputRef} className="hidden" accept="image/*,.pdf" onChange={(e: any) => setExpFile(e.target.files ? e.target.files[0] : null)} />
+                                        <button type="button" onClick={() => fileInputRef.current?.click()} className={`p-3 border border-zinc-800 transition-colors ${expFile ? 'text-green-500 border-green-900' : 'text-zinc-500 hover:text-white'}`}>
+                                            <PaperClipIcon />
+                                        </button>
+                                        <span className="text-xs text-zinc-400 font-mono truncate">{expFile ? expFile.name : 'Opcional'}</span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
 
-                        {/* Botones integrados al final de los datos */}
-                        <div className="flex justify-end items-center border-t border-zinc-900 mt-10 pt-6 gap-4">
+                        <div className="flex justify-end gap-4 border-t border-zinc-900 pt-6">
                             <button type="button" onClick={() => setIsExpenseModalOpen(false)} className="text-zinc-500 text-[10px] font-bold tracking-widest hover:text-white uppercase transition-colors">CANCELAR</button>
                             <button type="submit" disabled={actionLoading} className="bg-white text-black font-bold py-2 px-6 text-[10px] tracking-widest uppercase hover:bg-zinc-300 transition-colors disabled:opacity-50">GUARDAR GASTO</button>
                         </div>

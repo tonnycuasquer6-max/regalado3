@@ -46,13 +46,13 @@ const NumberControl = ({ label, value, step, min, onChange, isMoney = false, pre
     return (
         <div>
             <label className={`block text-[10px] font-black mb-2 uppercase tracking-[0.3em] ${labelColor}`}>{label}</label>
-            <div className={`flex items-center bg-transparent border-b-2 transition-colors group pb-1 ${borderColor}`}>
-                <div className={`flex-grow flex justify-start items-center font-mono text-xl ${textColor}`}>
+            <div className={`flex items-center bg-transparent border-b transition-colors group py-1 ${borderColor}`}>
+                <div className={`flex-grow flex justify-start items-center font-mono text-base ${textColor}`}>
                     {prefix && <span className="mr-1 opacity-70">{prefix}</span>}
                     <input 
                         type="number" value={value.toFixed(2)} onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
                         className="w-full bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                        step={step} min={min}
+                        step="any" min={min} 
                     />
                 </div>
                 <div className="flex flex-col ml-2 justify-center">
@@ -68,7 +68,6 @@ const ExpensesView: React.FC = () => {
     const [currentMonth, setCurrentMonth] = useState(new Date());
     const [expenses, setExpenses] = useState<any[]>([]);
     
-    // Diccionarios y usuario
     const [clientsDict, setClientsDict] = useState<Record<string, any>>({});
     const [casesDict, setCasesDict] = useState<Record<string, any>>({});
     const [userProfile, setUserProfile] = useState<any>(null);
@@ -76,7 +75,6 @@ const ExpensesView: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [actionLoading, setActionLoading] = useState(false);
 
-    // Estado del Formulario
     const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
     const [expDesc, setExpDesc] = useState('');
     const [expAmount, setExpAmount] = useState<number>(0);
@@ -131,7 +129,12 @@ const ExpensesView: React.FC = () => {
 
     const handleSaveExpense = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!expDesc || expAmount <= 0 || !expClientId || !expCaseId || !userProfile) return;
+        
+        if (!expDesc || expAmount <= 0 || !expClientId || !expCaseId || !userProfile) {
+            alert("Por favor completa todos los campos.\nAsegúrate de seleccionar un Cliente, un Caso Abierto, una Descripción y un Monto mayor a $0.");
+            return;
+        }
+
         setActionLoading(true);
 
         let fileUrl = null;
@@ -141,11 +144,16 @@ const ExpensesView: React.FC = () => {
             if (!uploadError) {
                 const { data } = supabase.storage.from('comprobantes').getPublicUrl(fileName);
                 fileUrl = data.publicUrl;
+            } else {
+                alert(`Error al subir el archivo: ${uploadError.message}`);
+                setActionLoading(false);
+                return;
             }
         }
 
         const { error } = await supabase.from('gastos').insert({
             perfil_id: userProfile.id,
+            trabajador_id: userProfile.id,
             cliente_id: expClientId,
             caso_id: expCaseId,
             descripcion: expDesc,
@@ -158,6 +166,8 @@ const ExpensesView: React.FC = () => {
             setIsExpenseModalOpen(false);
             setExpDesc(''); setExpAmount(0); setExpFile(null); setExpClientId(''); setExpCaseId('');
             fetchMonthData();
+        } else {
+            alert(`Error de base de datos: ${error.message}`);
         }
         setActionLoading(false);
     };
@@ -250,51 +260,66 @@ const ExpensesView: React.FC = () => {
                 </div>
 
                 <Modal isOpen={isExpenseModalOpen} onClose={() => setIsExpenseModalOpen(false)}>
-                    <form onSubmit={handleSaveExpense} className="flex flex-col h-full overflow-hidden">
-                        <div className="p-8 overflow-y-auto flex-grow">
-                            <h2 className="text-xl font-bold mb-8 italic tracking-widest uppercase text-white">REGISTRAR GASTO</h2>
-                            
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+                    <form onSubmit={handleSaveExpense} className="p-8 flex flex-col overflow-y-auto max-h-[90vh]">
+                        <h2 className="text-xl font-bold mb-6 italic tracking-widest uppercase text-white">REGISTRAR GASTO</h2>
+
+                        <div className="space-y-6 mb-8">
+                            <div className="grid grid-cols-2 gap-6">
                                 <div>
                                     <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">Trabajador</label>
-                                    <div className="w-full py-2 px-0 bg-transparent border-b-2 border-zinc-800 text-white opacity-70">
-                                        {userProfile?.primer_nombre} {userProfile?.primer_apellido}
-                                    </div>
+                                    <input type="text" readOnly value={`${userProfile?.primer_nombre || ''} ${userProfile?.primer_apellido || ''}`} className="w-full bg-transparent border-b border-zinc-800 text-white py-2 opacity-70 focus:outline-none" />
                                 </div>
-
-                                <InputField label="Fecha" type="date" value={expDate} onChange={(e: any) => setExpDate(e.target.value)} required />
-                                
-                                <SelectField label="Cliente" value={expClientId} onChange={(e: any) => setExpClientId(e.target.value)} options={clientOptions} required />
-                                <SelectField label="Caso" value={expCaseId} onChange={(e: any) => setExpCaseId(e.target.value)} options={filteredCases} disabled={!expClientId} required />
-
-                                <div className="md:col-span-2">
-                                    <InputField label="Descripción del Gasto" value={expDesc} onChange={(e: any) => setExpDesc(e.target.value)} required />
+                                <div>
+                                    <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">Fecha</label>
+                                    <input type="date" required value={expDate} onChange={(e: any) => setExpDate(e.target.value)} className="w-full bg-transparent border-b border-zinc-800 text-white py-2 focus:outline-none focus:border-zinc-500 [&::-webkit-calendar-picker-indicator]:invert" />
                                 </div>
+                            </div>
 
-                                <NumberControl 
-                                    label="Monto Reembolsable" 
-                                    value={expAmount} 
-                                    step={0.25} 
-                                    min={0} 
-                                    onChange={setExpAmount} 
-                                    prefix="$"
+                            <div className="grid grid-cols-2 gap-6">
+                                <div>
+                                    <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">Cliente</label>
+                                    <select required value={expClientId} onChange={(e: any) => setExpClientId(e.target.value)} className="w-full bg-transparent border-b border-zinc-800 text-white py-2 focus:outline-none focus:border-zinc-500">
+                                        <option value="" className="bg-black">Seleccionar...</option>
+                                        {clientOptions.map((opt: any) => <option key={opt.id} value={opt.id} className="bg-black">{opt.primer_nombre} {opt.primer_apellido}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">Caso</label>
+                                    <select required disabled={!expClientId} value={expCaseId} onChange={(e: any) => setExpCaseId(e.target.value)} className="w-full bg-transparent border-b border-zinc-800 text-white py-2 focus:outline-none focus:border-zinc-500 disabled:opacity-50">
+                                        <option value="" className="bg-black">Seleccionar...</option>
+                                        {filteredCases.map((opt: any) => <option key={opt.id} value={opt.id} className="bg-black">{opt.titulo}</option>)}
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">Descripción (Qué se compró / pagó)</label>
+                                <input type="text" required value={expDesc} onChange={e => setExpDesc(e.target.value)} className="w-full bg-transparent border-b border-zinc-800 text-white py-2 focus:outline-none focus:border-zinc-500" />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-6 items-start">
+                                <NumberControl
+                                    label="Monto Reembolsable ($)"
+                                    value={expAmount}
+                                    step={0.25}
+                                    min={0.01}
+                                    onChange={setExpAmount}
                                     isMoney={true}
                                 />
-
                                 <div>
                                     <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">Factura (Opcional)</label>
-                                    <div className="flex items-center gap-4 border-b-2 border-zinc-800 pb-1">
+                                    <div className="flex items-center gap-4 mt-2">
                                         <input type="file" ref={fileInputRef} className="hidden" accept="image/*,.pdf" onChange={(e: any) => setExpFile(e.target.files ? e.target.files[0] : null)} />
-                                        <button type="button" onClick={() => fileInputRef.current?.click()} className={`text-zinc-600 hover:text-white transition-colors p-1 ${expFile ? 'text-green-500' : ''}`}>
+                                        <button type="button" onClick={() => fileInputRef.current?.click()} className={`p-3 border border-zinc-800 transition-colors ${expFile ? 'text-green-500 border-green-900' : 'text-zinc-500 hover:text-white'}`}>
                                             <PaperClipIcon />
                                         </button>
-                                        <span className="text-xs text-zinc-400 font-mono truncate">{expFile ? expFile.name : 'Ningún archivo adjunto'}</span>
+                                        <span className="text-xs text-zinc-400 font-mono truncate">{expFile ? expFile.name : 'Opcional'}</span>
                                     </div>
                                 </div>
                             </div>
                         </div>
 
-                        <div className="flex justify-end items-center border-t border-zinc-900 mt-10 p-8 pt-6 bg-transparent flex-shrink-0 gap-4">
+                        <div className="flex justify-end gap-4 border-t border-zinc-900 pt-6">
                             <button type="button" onClick={() => setIsExpenseModalOpen(false)} className="text-zinc-500 text-[10px] font-bold tracking-widest hover:text-white uppercase transition-colors">CANCELAR</button>
                             <button type="submit" disabled={actionLoading} className="bg-white text-black font-bold py-2 px-6 text-[10px] tracking-widest uppercase hover:bg-zinc-300 transition-colors disabled:opacity-50">GUARDAR GASTO</button>
                         </div>
