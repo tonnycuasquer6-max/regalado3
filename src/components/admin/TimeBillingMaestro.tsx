@@ -41,7 +41,7 @@ const Modal: React.FC<{ isOpen: boolean; onClose: () => void; children: React.Re
     return <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 font-mono"><div className="bg-black border border-zinc-800 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">{children}</div></div>;
 };
 
-// SOLUCIÓN PUNTO 5: Algoritmo para calcular la cascada horizontal de tareas superpuestas
+// Algoritmo de Cascada para evitar que se pisen
 const calculateLayout = (entries: any[]) => {
     const events = entries.map(e => {
         const h = parseInt(e.hora_inicio.split(':')[0] || '0');
@@ -225,6 +225,22 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
     });
   };
 
+  // --- SOLUCIÓN ERROR 1: RE-AGREGADO EL DRAG & DROP ---
+  const handleDragStart = (e: React.DragEvent, entry: TimeEntry) => { 
+      e.dataTransfer.setData('text/plain', entry.id.toString()); 
+  };
+
+  const handleDrop = async (e: React.DragEvent, date: string, hour: number) => {
+    e.preventDefault();
+    const entryId = e.dataTransfer.getData('text/plain');
+    setTimeEntries(prev => prev.map(entry => entry.id === entryId ? { ...entry, fecha_tarea: date, hora_inicio: `${String(hour).padStart(2, '0')}:00:00` } : entry));
+    try {
+      const { error } = await supabase.from('time_entries').update({ fecha_tarea: date, hora_inicio: `${String(hour).padStart(2, '0')}:00:00` }).eq('id', entryId);
+      if (error) throw error;
+      await fetchWeekEntries(currentUserProfile);
+    } catch (err: any) { alert(`Error al mover: ${err.message}`); fetchWeekEntries(currentUserProfile); }
+  };
+
   const filteredCases = cases.filter(c => c.cliente_id === selectedClientId);
   const weekDays = Array.from({ length: 7 }).map((_, i) => { const day = getStartOfWeek(currentDate); day.setDate(day.getDate() + i); return day; });
   const hours = Array.from({ length: 17 }, (_, i) => i + 6);
@@ -261,24 +277,27 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
             {weekDays.map((day, dayIndex) => {
               const dayStr = toYYYYMMDD(day);
               const dayEntries = timeEntries.filter(entry => entry.fecha_tarea === dayStr);
-              // Lógica de cálculo de superposición (Cascada)
               const layout = calculateLayout(dayEntries);
 
               return (
-              <div key={dayIndex} className="border-r border-zinc-800">
+              <div key={dayIndex} className="border-r border-zinc-800 relative">
                 <div className="text-center p-2 border-b border-zinc-800 h-16 flex flex-col justify-center">
                   <div className="text-xs uppercase text-zinc-500 font-bold">{day.toLocaleDateString('es-ES', { weekday: 'short' })}</div>
                   <div className="text-lg font-bold text-white">{day.getDate()}</div>
                 </div>
                 
-                <div className="relative">
+                <div className="relative w-full h-full" onDragOver={(e) => e.preventDefault()}>
                   <div className="grid" style={{ gridTemplateRows: `repeat(${hours.length}, minmax(60px, auto))` }}>
                     {hours.map((hour, hourIndex) => (
-                      <div key={hourIndex} className="h-[60px] border-b border-zinc-800 hover:bg-zinc-900/50 cursor-pointer transition-colors" onClick={() => openNewEntryModal(dayStr, hour)}></div>
+                      <div key={hourIndex} className="h-[60px] border-b border-zinc-800 hover:bg-zinc-900/50 cursor-pointer transition-colors" 
+                           onClick={() => openNewEntryModal(dayStr, hour)}
+                           onDrop={(e) => handleDrop(e, dayStr, hour)}
+                           onDragOver={(e) => e.preventDefault()}>
+                      </div>
                     ))}
                   </div>
 
-                  {/* SOLUCIÓN PUNTO 4: Diseño Transparente y Color Unico */}
+                  {/* TAREAS RENDERIZADAS */}
                   <div className="absolute top-0 left-0 w-full h-full pointer-events-none">
                     {dayEntries.map(entry => {
                         const entryHour = parseInt(entry.hora_inicio.split(':')[0]);
@@ -286,18 +305,19 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
                         const height = entry.horas * 60;
                         const { width, left } = layout[entry.id];
                         
-                        // Color Dinámico: Blanco si es admin, el de su perfil, o azul por defecto.
                         const profileColor = entry.profiles?.color_perfil || (entry.profiles?.rol === 'admin' ? '#ffffff' : '#3b82f6');
 
                         return (
                           <div key={entry.id} 
-                               className="absolute p-2 bg-black/60 backdrop-blur-md border border-zinc-800 shadow-xl z-10 pointer-events-auto hover:bg-zinc-900 transition-colors overflow-hidden flex flex-col justify-start group" 
+                               draggable
+                               onDragStart={(e) => handleDragStart(e, entry)}
+                               className="absolute p-2 bg-black/60 backdrop-blur-md border border-zinc-800 shadow-xl z-10 pointer-events-auto hover:bg-zinc-900 transition-colors overflow-hidden flex flex-col justify-start group cursor-move" 
                                style={{ 
                                    top: `${top}px`, 
                                    height: `${height}px`, 
                                    left: `calc(${left} + 2px)`, 
                                    width: `calc(${width} - 4px)`, 
-                                   borderLeft: `4px solid ${profileColor}` // Franja Izquierda
+                                   borderLeft: `4px solid ${profileColor}` 
                                }} 
                                onClick={(e) => { e.stopPropagation(); openEditEntryModal(entry); }}>
                             
@@ -315,7 +335,6 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
         </div>
       </div>
 
-      {/* MODAL DE EDICIÓN (No cambia) */}
       <Modal isOpen={isModalOpen && !!selectedSlot} onClose={() => setIsModalOpen(false)}>
         <form onSubmit={handleSaveEntry}>
             <div className="p-8">

@@ -13,9 +13,11 @@ const ShieldIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" vie
 
 const scrollbarStyle = "overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-zinc-800 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-zinc-700 transition-colors";
 
-interface Profile { id: string; primer_nombre: string; primer_apellido: string; cedula: string; email: string; foto_url: string | null; rol: string; categoria_usuario: 'abogado' | 'estudiante' | 'cliente'; estado_aprobacion: string; }
+interface Profile { id: string; primer_nombre: string; primer_apellido: string; cedula: string; email: string; foto_url: string | null; rol: string; categoria_usuario: 'abogado' | 'estudiante' | 'cliente'; estado_aprobacion: string; color_perfil?: string; }
 interface Case { id: string; created_at: string; titulo: string; descripcion: string; estado: string; cliente_id: string; }
 interface CaseUpdate { id: string; created_at: string; descripcion: string; file_url: string | null; file_name: string | null; estado_aprobacion: string; observacion: string | null; }
+
+const PROFILE_COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316', '#6366f1', '#14b8a6', '#f43f5e', '#84cc16'];
 
 const Modal: React.FC<{ isOpen: boolean; onClose: () => void; children: React.ReactNode }> = ({ isOpen, onClose, children }) => {
     if (!isOpen) return null;
@@ -69,6 +71,8 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
     const [rejectDialog, setRejectDialog] = useState<{ isOpen: boolean; updateId: string }>({ isOpen: false, updateId: '' });
     const [rejectReason, setRejectReason] = useState('');
 
+    const [usedColors, setUsedColors] = useState<string[]>([]);
+
     const fetchProfiles = useCallback(async () => {
         setLoading(true);
         const { data } = await supabase.from('profiles').select('*').eq('categoria_usuario', role);
@@ -76,9 +80,28 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
         setLoading(false);
     }, [role]);
 
-    useEffect(() => { fetchProfiles(); }, [fetchProfiles]);
+    const fetchUsedColors = async () => {
+        const { data } = await supabase.from('profiles').select('color_perfil').not('color_perfil', 'is', null);
+        if (data) setUsedColors(data.map(p => p.color_perfil));
+    };
 
-    const handleUpdateProfile = async (e: React.FormEvent) => { e.preventDefault(); if (!profileToEdit) return; setActionLoading(true); const { data } = await supabase.from('profiles').update(editFormData).eq('id', profileToEdit.id).select().single(); if (data) { setProfiles(prev => prev.map(p => (p.id === data.id ? data : p))); setProfileToEdit(null); } setActionLoading(false); };
+    useEffect(() => { 
+        fetchProfiles(); 
+        if (role === 'abogado' || role === 'estudiante') fetchUsedColors();
+    }, [fetchProfiles, role]);
+
+    const handleUpdateProfile = async (e: React.FormEvent) => { 
+        e.preventDefault(); 
+        if (!profileToEdit) return; 
+        setActionLoading(true); 
+        const { data } = await supabase.from('profiles').update(editFormData).eq('id', profileToEdit.id).select().single(); 
+        if (data) { 
+            setProfiles(prev => prev.map(p => (p.id === data.id ? data : p))); 
+            setProfileToEdit(null); 
+            fetchUsedColors();
+        } 
+        setActionLoading(false); 
+    };
     
     const handleDeleteProfile = async () => { 
         if (!profileToDelete) return; 
@@ -88,7 +111,6 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
             message: 'Esta acción no se puede deshacer. Se borrarán sus asignaciones y horas registradas.',
             onConfirm: async () => {
                 setActionLoading(true); 
-                
                 await supabase.from('asignaciones_casos').delete().eq('abogado_id', profileToDelete.id);
                 await supabase.from('peticiones_acceso').delete().eq('trabajador_id', profileToDelete.id);
                 await supabase.from('time_entries').delete().eq('perfil_id', profileToDelete.id);
@@ -99,7 +121,6 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
                 } else { 
                     setProfiles(prev => prev.filter(p => p.id !== profileToDelete.id)); 
                 }
-                
                 setProfileToDelete(null); 
                 setActionLoading(false); 
             }
@@ -175,7 +196,6 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
         });
     };
 
-    // SOLUCIÓN PUNTO 3: Función para cerrar caso
     const handleCloseCase = async () => {
         if (!activeCaseHistory) return;
         setConfirmDialog({
@@ -370,7 +390,13 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
                 <div className="bg-black border border-zinc-900 divide-y divide-zinc-900">
                     {filteredProfiles.map(p => (
                         <div key={p.id} className="group flex items-center p-4 hover:bg-zinc-900/50 transition-colors">
-                            <img src={p.foto_url || 'https://via.placeholder.com/150'} className="w-14 h-14 rounded-full border-2 border-zinc-800 object-cover" />
+                            <div className="relative w-14 h-14">
+                                <img src={p.foto_url || 'https://via.placeholder.com/150'} className="w-full h-full rounded-full border-2 border-zinc-800 object-cover" />
+                                {/* Muestra el color de perfil si es trabajador */}
+                                {(role === 'abogado' || role === 'estudiante') && p.color_perfil && (
+                                    <span className="absolute bottom-0 right-0 w-4 h-4 rounded-full border-2 border-black" style={{ backgroundColor: p.color_perfil }}></span>
+                                )}
+                            </div>
                             <div className="ml-6 flex-grow">
                                 <p className="text-lg font-bold">{p.primer_nombre} {p.primer_apellido}</p>
                                 <p className="text-sm text-zinc-500">{p.cedula} | {p.email}</p>
@@ -687,6 +713,7 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
                 </form>
             </Modal>
 
+            {/* SOLUCIÓN ERROR 3: Añadido selector de color al editar perfil */}
             <Modal isOpen={!!profileToEdit} onClose={() => setProfileToEdit(null)}>
                 <form onSubmit={handleUpdateProfile} className="p-8">
                     <h2 className="text-xl font-bold mb-8 italic tracking-widest uppercase text-white">Editar Perfil</h2>
@@ -695,6 +722,33 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
                         <InputField label="Apellido" value={editFormData.primer_apellido || ''} onChange={(e) => setEditFormData({...editFormData, primer_apellido: e.target.value})} />
                         <InputField label="Cédula" value={editFormData.cedula || ''} onChange={(e) => setEditFormData({...editFormData, cedula: e.target.value})} />
                         <InputField label="Email" value={editFormData.email || ''} onChange={(e) => setEditFormData({...editFormData, email: e.target.value})} />
+                        
+                        {(role === 'abogado' || role === 'estudiante') && (
+                            <div className="col-span-2 pt-6 border-t border-zinc-900 mt-2">
+                                <label className="block text-zinc-500 text-[10px] font-black uppercase tracking-[0.3em] mb-4">
+                                    Color de Identificación
+                                </label>
+                                <div className="flex flex-wrap gap-4">
+                                    {PROFILE_COLORS.map(color => {
+                                        const isUsed = usedColors.includes(color);
+                                        const isSelected = editFormData.color_perfil === color;
+                                        return (
+                                            <button
+                                                key={color}
+                                                type="button"
+                                                disabled={isUsed && !isSelected}
+                                                onClick={() => setEditFormData({ ...editFormData, color_perfil: color })}
+                                                className={`w-8 h-8 rounded-full transition-all duration-300 relative ${isUsed && !isSelected ? 'opacity-20 cursor-not-allowed grayscale' : 'hover:scale-110 cursor-pointer'} ${isSelected ? 'ring-2 ring-white scale-110' : ''}`}
+                                                style={{ backgroundColor: color }}
+                                                title={isUsed && !isSelected ? 'En uso por otro trabajador' : 'Seleccionar color'}
+                                            >
+                                                {isSelected && <CheckIcon className="absolute inset-0 m-auto text-white w-4 h-4 stroke-[3]" />}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
                     </div>
                     <div className="mt-8 flex justify-end gap-4">
                         <button type="button" onClick={() => setProfileToEdit(null)} className="py-2 px-6 text-zinc-400 hover:text-white transition-colors">Cancelar</button>

@@ -15,25 +15,6 @@ const Modal: React.FC<{ isOpen: boolean; onClose: () => void; children: React.Re
     return <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4 font-mono"><div className="bg-black border border-zinc-800 shadow-2xl w-full max-w-xl overflow-hidden flex flex-col max-h-[90vh] relative">{children}</div></div>;
 };
 
-// Componentes para formulario
-const InputField = ({ label, type = 'text', ...props }: any) => (
-    <div>
-        <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">{label}</label>
-        <input type={type} className="w-full py-2 px-0 bg-transparent border-b-2 border-zinc-800 text-white focus:outline-none focus:border-zinc-500 transition-colors [&::-webkit-calendar-picker-indicator]:invert" {...props} />
-    </div>
-);
-const SelectField = ({ label, options, ...props }: any) => (
-     <div>
-        <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">{label}</label>
-        <select className="w-full py-2 px-0 bg-transparent border-b-2 border-zinc-800 text-white focus:outline-none focus:border-zinc-500 transition-colors disabled:opacity-50" {...props}>
-            <option value="" className="bg-black">Seleccionar...</option>
-            {options.map((opt: any) => (
-                <option key={opt.id} value={opt.id} className="bg-black">{opt.titulo || `${opt.primer_nombre || ''} ${opt.primer_apellido || ''}`.trim()}</option>
-            ))}
-        </select>
-    </div>
-);
-
 interface AdminProfileProps {
     session: Session;
     onCancel: () => void;
@@ -44,8 +25,11 @@ const AdminProfile: React.FC<AdminProfileProps> = ({ session, onCancel }) => {
     const [currentMonth, setCurrentMonth] = useState(new Date());
     const [timeEntries, setTimeEntries] = useState<any[]>([]);
     const [expenses, setExpenses] = useState<any[]>([]);
+    const [clientsDict, setClientsDict] = useState<Record<string, any>>({});
+    
     const [loading, setLoading] = useState(true);
     const [actionLoading, setActionLoading] = useState(false);
+    const [showRecords, setShowRecords] = useState(false);
 
     const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
     const [expDesc, setExpDesc] = useState('');
@@ -54,29 +38,12 @@ const AdminProfile: React.FC<AdminProfileProps> = ({ session, onCancel }) => {
     const [expFile, setExpFile] = useState<File | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    // SOLUCIÓN PUNTO 6: Estados para "AÑADIR REGISTRO" (Time Billing)
-    const [isRecordModalOpen, setIsRecordModalOpen] = useState(false);
-    const [clients, setClients] = useState<any[]>([]);
-    const [cases, setCases] = useState<any[]>([]);
-    const [recClientId, setRecClientId] = useState('');
-    const [recCaseId, setRecCaseId] = useState('');
-    const [recDesc, setRecDesc] = useState('');
-    const [recDate, setRecDate] = useState(new Date().toISOString().split('T')[0]);
-    const [recHour, setRecHour] = useState('08:00');
-    const [recHours, setRecHours] = useState<number>(1);
-    const [recRate, setRecRate] = useState<number>(0);
-
-    const fetchDropdownData = async () => {
-        const {data: cl} = await supabase.from('profiles').select('*').eq('rol', 'cliente');
-        setClients(cl || []);
-        const {data: ca} = await supabase.from('cases').select('*');
-        setCases(ca || []);
-    };
-
     const fetchProfileData = useCallback(async () => {
-        const { data } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
-        if (data) setProfileData(data);
-    }, [session.user.id]);
+        try {
+            const { data } = await supabase.from('profiles').select('*').eq('id', session?.user?.id).single();
+            if (data) setProfileData(data);
+        } catch(e) { console.error(e); }
+    }, [session?.user?.id]);
 
     const fetchMonthData = useCallback(async () => {
         setLoading(true);
@@ -85,29 +52,44 @@ const AdminProfile: React.FC<AdminProfileProps> = ({ session, onCancel }) => {
         const startStr = startOfMonth.toISOString().split('T')[0];
         const endStr = endOfMonth.toISOString().split('T')[0];
 
-        const { data: times } = await supabase
-            .from('time_entries')
-            .select('*, cases(titulo)')
-            .eq('perfil_id', session.user.id)
-            .gte('fecha_tarea', startStr)
-            .lte('fecha_tarea', endStr)
-            .order('fecha_tarea', { ascending: false });
-        setTimeEntries(times || []);
+        try {
+            // Traer las actividades con el ID del cliente para poder buscar su nombre
+            const { data: times } = await supabase
+                .from('time_entries')
+                .select('*, caso:cases(titulo, cliente_id)')
+                .eq('perfil_id', session?.user?.id)
+                .gte('fecha_tarea', startStr)
+                .lte('fecha_tarea', endStr)
+                .order('fecha_tarea', { ascending: false });
+            setTimeEntries(times || []);
 
-        const { data: exps } = await supabase
-            .from('gastos')
-            .select('*')
-            .eq('perfil_id', session.user.id)
-            .gte('fecha', startStr)
-            .lte('fecha', endStr)
-            .order('fecha', { ascending: false });
-        setExpenses(exps || []);
+            // Traer a los clientes para armar el diccionario de nombres
+            const { data: clientsData } = await supabase.from('profiles').select('id, primer_nombre, primer_apellido').eq('rol', 'cliente');
+            const cDict: Record<string, any> = {};
+            clientsData?.forEach(c => { cDict[c.id] = c; });
+            setClientsDict(cDict);
+
+        } catch(e) { console.error(e); setTimeEntries([]); }
+
+        try {
+            const { data: exps } = await supabase
+                .from('gastos')
+                .select('*')
+                .eq('perfil_id', session?.user?.id)
+                .gte('fecha', startStr)
+                .lte('fecha', endStr)
+                .order('fecha', { ascending: false });
+            setExpenses(exps || []);
+        } catch(e) { console.error(e); setExpenses([]); }
 
         setLoading(false);
-    }, [currentMonth, session.user.id]);
+    }, [currentMonth, session?.user?.id]);
 
-    useEffect(() => { fetchProfileData(); fetchDropdownData(); }, [fetchProfileData]);
+    useEffect(() => { fetchProfileData(); }, [fetchProfileData]);
     useEffect(() => { fetchMonthData(); }, [fetchMonthData]);
+
+    const handlePrevMonth = () => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1));
+    const handleNextMonth = () => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1));
 
     const handleSaveExpense = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -140,33 +122,6 @@ const AdminProfile: React.FC<AdminProfileProps> = ({ session, onCancel }) => {
         setActionLoading(false);
     };
 
-    // SOLUCIÓN PUNTO 6: Función para guardar el Registro de Trabajo
-    const handleSaveRecord = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!recCaseId || !recDesc || recHours <= 0) return;
-        setActionLoading(true);
-
-        const { error } = await supabase.from('time_entries').insert({
-            perfil_id: session.user.id,
-            caso_id: recCaseId,
-            descripcion_tarea: recDesc,
-            fecha_tarea: recDate,
-            hora_inicio: `${recHour}:00`,
-            horas: recHours,
-            tarifa_personalizada: recRate > 0 ? recRate : null,
-            estado: 'pending'
-        });
-
-        if (!error) {
-            setIsRecordModalOpen(false);
-            setRecDesc(''); setRecHours(1); setRecRate(0); setRecClientId(''); setRecCaseId('');
-            fetchMonthData();
-        } else {
-            alert(`Error: ${error.message}`);
-        }
-        setActionLoading(false);
-    };
-
     const handleDeleteExpense = async (id: string, url: string | null) => {
         if (!confirm("¿Eliminar este gasto?")) return;
         setActionLoading(true);
@@ -179,15 +134,14 @@ const AdminProfile: React.FC<AdminProfileProps> = ({ session, onCancel }) => {
         setActionLoading(false);
     };
 
-    const totalHours = timeEntries.reduce((acc, curr) => acc + (curr.horas || 0), 0);
-    const totalIncome = timeEntries.reduce((acc, curr) => acc + ((curr.horas || 0) * (curr.tarifa_personalizada || 0)), 0);
-    const totalExpenses = expenses.reduce((acc, curr) => acc + (curr.monto || 0), 0);
+    const totalHours = timeEntries?.reduce((acc, curr) => acc + (curr.horas || 0), 0) || 0;
+    const totalIncome = timeEntries?.reduce((acc, curr) => acc + ((curr.horas || 0) * (curr.tarifa_personalizada || 0)), 0) || 0;
+    const totalExpenses = expenses?.reduce((acc, curr) => acc + (curr.monto || 0), 0) || 0;
     const finalTotal = totalIncome + totalExpenses;
     const monthName = currentMonth.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }).toUpperCase();
-    const filteredCases = cases.filter(c => c.cliente_id === recClientId);
 
     return (
-        <div className="max-w-4xl mx-auto animate-in fade-in duration-500 font-mono text-white pb-12">
+        <div className="max-w-5xl mx-auto animate-in fade-in duration-500 font-mono text-white pb-12">
             <header className="flex items-center justify-between mb-8 pb-4 border-b border-zinc-900">
                 <h1 className="text-3xl font-black uppercase tracking-tighter italic">Mi Perfil</h1>
                 <button onClick={onCancel} className="text-zinc-400 hover:text-white font-black py-2 px-6 transition-colors uppercase text-[10px] tracking-[0.3em]">Volver</button>
@@ -202,19 +156,19 @@ const AdminProfile: React.FC<AdminProfileProps> = ({ session, onCancel }) => {
                         <div className="mt-4 flex flex-col gap-1 text-xs text-zinc-400 font-mono">
                             <p>EMAIL: <span className="text-white">{profileData.email}</span></p>
                             <p>CÉDULA: <span className="text-white">{profileData.cedula || 'No registrada'}</span></p>
-                            <p>MATRÍCULA: <span className="text-white">{profileData.matricula || 'No registrada'}</span></p>
+                            <p>MATRÍCULA: <span className="text-white">{profileData.matricula_nro || 'No registrada'}</span></p>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* BOTONES: AÑADIR GASTO Y AÑADIR REGISTRO */}
+            {/* BOTONES AÑADIR GASTO Y VER REGISTROS (Uno al lado del otro) */}
             <div className="flex justify-end gap-4 mb-4 animate-in fade-in slide-in-from-right-4 duration-500 delay-200">
                 <button onClick={() => setIsExpenseModalOpen(true)} className="bg-white text-black font-bold py-2 px-6 text-[10px] tracking-widest uppercase hover:bg-zinc-300 transition-colors shadow-lg shadow-black/50">
                     + AÑADIR GASTO
                 </button>
-                <button onClick={() => setIsRecordModalOpen(true)} className="bg-white text-black font-bold py-2 px-6 text-[10px] tracking-widest uppercase hover:bg-zinc-300 transition-colors shadow-lg shadow-black/50">
-                    + AÑADIR REGISTRO
+                <button onClick={() => setShowRecords(!showRecords)} className="bg-zinc-800 text-white font-bold py-2 px-6 text-[10px] tracking-widest uppercase hover:bg-zinc-700 transition-colors shadow-lg shadow-black/50">
+                    {showRecords ? 'OCULTAR REGISTROS' : 'VER REGISTROS'}
                 </button>
             </div>
 
@@ -230,6 +184,7 @@ const AdminProfile: React.FC<AdminProfileProps> = ({ session, onCancel }) => {
                 ) : (
                     <div>
                         <p className="text-[10px] font-black uppercase text-zinc-600 tracking-[0.3em] mb-6">RESUMEN FINANCIERO</p>
+                        
                         <div className="bg-zinc-950 border border-zinc-900 p-6 mb-8">
                             <div className="flex justify-between items-center mb-3">
                                 <p className="text-zinc-400 uppercase tracking-widest text-xs font-bold">Total Horas Trabajadas</p>
@@ -248,6 +203,51 @@ const AdminProfile: React.FC<AdminProfileProps> = ({ session, onCancel }) => {
                                 <p className="text-green-500 font-black text-3xl tracking-wider">${finalTotal.toFixed(2)}</p>
                             </div>
                         </div>
+
+                        {/* LISTA DESPLEGABLE DE REGISTROS DE TIME BILLING DETALLADOS */}
+                        {showRecords && (
+                            <div className="mb-8 animate-in fade-in slide-in-from-top-4 duration-500">
+                                <p className="text-[10px] font-black uppercase text-zinc-600 tracking-[0.3em] mb-4">REGISTRO DE ACTIVIDADES (TIME BILLING)</p>
+                                {timeEntries.length === 0 ? (
+                                    <div className="p-8 border border-dashed border-zinc-900 text-center text-zinc-600 text-xs tracking-widest uppercase">
+                                        No hay actividades registradas en este mes.
+                                    </div>
+                                ) : (
+                                    <div className={`max-h-[500px] space-y-3 pr-2 ${scrollbarStyle}`}>
+                                        {timeEntries.map(te => {
+                                            const totalCobrar = (te.horas || 0) * (te.tarifa_personalizada || 0);
+                                            const cliente = clientsDict[te.caso?.cliente_id] || {};
+                                            
+                                            return (
+                                                <div key={te.id} className="bg-zinc-950 border border-zinc-900 hover:border-zinc-700 transition-colors p-5 flex flex-col md:flex-row justify-between md:items-center gap-6">
+                                                    <div className="flex-grow grid grid-cols-1 md:grid-cols-3 gap-6">
+                                                        <div>
+                                                            <p className="text-zinc-500 font-mono text-[10px] mb-2">{te.fecha_tarea} • {te.hora_inicio}</p>
+                                                            <p className="text-white font-bold text-xs uppercase tracking-widest">CLIENTE: <span className="text-zinc-300">{cliente.primer_nombre || 'N/A'} {cliente.primer_apellido || ''}</span></p>
+                                                            <p className="text-white font-bold text-xs uppercase tracking-widest mt-1">CASO: <span className="text-zinc-300 font-mono">{te.caso?.titulo || 'Desconocido'}</span></p>
+                                                        </div>
+                                                        <div>
+                                                            <p className="text-[10px] text-zinc-600 uppercase tracking-widest font-bold mb-1">ACTIVIDAD REALIZADA</p>
+                                                            <p className="text-zinc-300 text-xs line-clamp-3">{te.descripcion_tarea}</p>
+                                                        </div>
+                                                        <div>
+                                                            <p className="text-[10px] text-zinc-600 uppercase tracking-widest font-bold mb-1">TIEMPO Y TARIFA</p>
+                                                            <p className="text-zinc-400 text-xs font-mono">TIEMPO: <strong className="text-white">{te.horas} hrs</strong></p>
+                                                            <p className="text-zinc-400 text-xs font-mono mt-1">TARIFA: <strong className="text-white">${te.tarifa_personalizada || 0}/hr</strong></p>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="flex-shrink-0 flex flex-col items-end md:border-l border-zinc-800 md:pl-8 pt-4 md:pt-0 border-t md:border-t-0">
+                                                        <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-black mb-1">PRECIO A COBRAR</p>
+                                                        <p className="text-green-500 text-2xl font-black tracking-wider">${totalCobrar.toFixed(2)}</p>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+                        )}
 
                         <div className="mb-8">
                             <p className="text-[10px] font-black uppercase text-zinc-600 tracking-[0.3em] mb-4">DETALLE DE GASTOS REEMBOLSABLES</p>
@@ -285,7 +285,6 @@ const AdminProfile: React.FC<AdminProfileProps> = ({ session, onCancel }) => {
             <Modal isOpen={isExpenseModalOpen} onClose={() => setIsExpenseModalOpen(false)}>
                 <form onSubmit={handleSaveExpense} className="p-8 flex flex-col">
                     <h2 className="text-xl font-bold mb-6 italic tracking-widest uppercase text-white">REGISTRAR GASTO</h2>
-                    
                     <div className="space-y-6 mb-8">
                         <div>
                             <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">Descripción</label>
@@ -312,34 +311,9 @@ const AdminProfile: React.FC<AdminProfileProps> = ({ session, onCancel }) => {
                             </div>
                         </div>
                     </div>
-
                     <div className="flex justify-end gap-4 border-t border-zinc-900 pt-6">
                         <button type="button" onClick={() => setIsExpenseModalOpen(false)} className="text-zinc-500 text-[10px] font-bold tracking-widest hover:text-white uppercase transition-colors">CANCELAR</button>
                         <button type="submit" disabled={actionLoading} className="bg-white text-black font-bold py-2 px-6 text-[10px] tracking-widest uppercase hover:bg-zinc-300 transition-colors disabled:opacity-50">GUARDAR</button>
-                    </div>
-                </form>
-            </Modal>
-
-            {/* MODAL PARA CREAR REGISTRO TIME BILLING */}
-            <Modal isOpen={isRecordModalOpen} onClose={() => setIsRecordModalOpen(false)}>
-                <form onSubmit={handleSaveRecord} className="p-8">
-                    <h2 className="text-xl font-bold text-white mb-8 italic tracking-widest uppercase">REGISTRAR TRABAJO</h2>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
-                        <InputField label="Fecha" type="date" value={recDate} onChange={(e: any) => setRecDate(e.target.value)} required />
-                        <InputField label="Hora de Inicio" type="time" value={recHour} onChange={(e: any) => setRecHour(e.target.value)} required />
-                        
-                        <SelectField label="Cliente" value={recClientId} onChange={(e: any) => setRecClientId(e.target.value)} options={clients} required />
-                        <SelectField label="Caso" value={recCaseId} onChange={(e: any) => setRecCaseId(e.target.value)} options={filteredCases} disabled={!recClientId} required />
-                        
-                        <div className="md:col-span-2">
-                            <InputField label="Descripción Tarea" value={recDesc} onChange={(e: any) => setRecDesc(e.target.value)} required />
-                        </div>
-                        <InputField label="Horas" type="number" step="0.25" min="0.25" value={recHours} onChange={(e: any) => setRecHours(parseFloat(e.target.value) || 0)} required />
-                        <InputField label="Tarifa ($/hr)" type="number" step="1" min="0" value={recRate} onChange={(e: any) => setRecRate(parseFloat(e.target.value) || 0)} />
-                    </div>
-                    <div className="mt-8 flex justify-end gap-4 border-t border-zinc-900 pt-6">
-                        <button type="button" onClick={() => setIsRecordModalOpen(false)} className="text-zinc-500 font-bold tracking-widest uppercase text-[10px] hover:text-white">Cancelar</button>
-                        <button type="submit" disabled={actionLoading} className="bg-white text-black font-bold py-2 px-6 uppercase tracking-widest text-[10px] hover:bg-zinc-300 disabled:opacity-50">REGISTRAR</button>
                     </div>
                 </form>
             </Modal>
