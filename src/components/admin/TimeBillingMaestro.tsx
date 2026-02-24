@@ -40,7 +40,6 @@ const SelectField = ({ label, options, ...props }: any) => (
     </div>
 );
 
-// SOLUCIÓN PUNTO 1 Y 2: Flechas a la derecha y diseño verde para dinero
 const NumberControl = ({ label, value, step, min, onChange, isTime = false, isMoney = false, prefix = '' }: any) => {
     const handleDecrease = () => {
         let newVal = value - step;
@@ -60,7 +59,6 @@ const NumberControl = ({ label, value, step, min, onChange, isTime = false, isMo
         return `${h}h ${m}m`;
     };
 
-    // Estilos condicionales si es dinero (Tarifa)
     const textColor = isMoney ? 'text-green-400' : 'text-white';
     const borderColor = isMoney ? 'border-green-900/50 focus-within:border-green-500' : 'border-zinc-800 focus-within:border-zinc-500';
     const labelColor = isMoney ? 'text-green-700' : 'text-zinc-500';
@@ -82,7 +80,6 @@ const NumberControl = ({ label, value, step, min, onChange, isTime = false, isMo
                     />
                 </div>
 
-                {/* Flechas apiladas a la derecha */}
                 <div className="flex flex-col ml-2 justify-center">
                     <button type="button" onClick={handleIncrease} className={`hover:text-white transition-colors flex items-center justify-center p-0.5 ${isMoney ? 'text-green-700 hover:text-green-400' : 'text-zinc-600'}`}>
                         <ChevronUpIcon />
@@ -107,7 +104,6 @@ const Modal: React.FC<{ isOpen: boolean; onClose: () => void; children: React.Re
     return <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 font-mono"><div className="bg-black border border-zinc-800 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">{children}</div></div>;
 };
 
-// Algoritmo de Cascada para evitar que se pisen
 const calculateLayout = (entries: any[]) => {
     const events = entries.map(e => {
         const h = parseInt(e.hora_inicio.split(':')[0] || '0');
@@ -315,7 +311,11 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
     } catch (err: any) { alert(`Error al mover: ${err.message}`); fetchWeekEntries(currentUserProfile); }
   };
 
-  const filteredCases = cases.filter(c => c.cliente_id === selectedClientId);
+  const filteredCases = cases.filter(c => 
+      c.cliente_id === selectedClientId && 
+      (c.estado !== 'cerrado' || c.id === selectedCaseId)
+  );
+
   const weekDays = Array.from({ length: 7 }).map((_, i) => { const day = getStartOfWeek(currentDate); day.setDate(day.getDate() + i); return day; });
   const hours = Array.from({ length: 17 }, (_, i) => i + 6);
 
@@ -423,48 +423,48 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
       </div>
 
       <Modal isOpen={isModalOpen && !!selectedSlot} onClose={() => setIsModalOpen(false)}>
-        <form onSubmit={handleSaveEntry}>
-            <div className="p-8">
-                <h2 className="text-xl font-bold text-white mb-8 italic tracking-widest">{editingEntry ? 'EDITAR' : 'REGISTRAR'} TAREA</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
-                    <InputField label="Fecha" type="date" value={selectedSlot?.date || ''} readOnly />
-                    
-                    <div>
-                        <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">Trabajador</label>
-                        <div className="w-full py-2 px-0 bg-transparent border-b-2 border-zinc-800 text-white opacity-70">
-                            {editingEntry ? `${editingEntry.profiles?.primer_nombre} ${editingEntry.profiles?.primer_apellido}` : `${currentUserProfile?.primer_nombre} ${currentUserProfile?.primer_apellido}`}
-                        </div>
+        {/* SOLUCIÓN: El form es ahora la ventana deslizable en sí misma */}
+        <form onSubmit={handleSaveEntry} className="p-8 overflow-y-auto max-h-[85vh]">
+            <h2 className="text-xl font-bold text-white mb-8 italic tracking-widest">{editingEntry ? 'EDITAR' : 'REGISTRAR'} TAREA</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+                <InputField label="Fecha" type="date" value={selectedSlot?.date || ''} readOnly />
+                
+                <div>
+                    <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">Trabajador</label>
+                    <div className="w-full py-2 px-0 bg-transparent border-b-2 border-zinc-800 text-white opacity-70">
+                        {editingEntry ? `${editingEntry.profiles?.primer_nombre} ${editingEntry.profiles?.primer_apellido}` : `${currentUserProfile?.primer_nombre} ${currentUserProfile?.primer_apellido}`}
                     </div>
-                    
-                    <SelectField label="Cliente" value={selectedClientId} onChange={(e: any) => setSelectedClientId(e.target.value)} options={clientProfiles} required />
-                    <SelectField label="Caso" value={selectedCaseId} onChange={(e: any) => setSelectedCaseId(e.target.value)} options={filteredCases} disabled={!selectedClientId} required />
-                    
-                    <div className="md:col-span-2">
-                        <InputField label="Descripción Tarea" value={taskDescription} onChange={(e: any) => setTaskDescription(e.target.value)} required />
-                    </div>
-
-                    <NumberControl 
-                        label="Tiempo Invertido" 
-                        value={hoursWorked} 
-                        step={5 / 60} 
-                        min={5 / 60} 
-                        onChange={setHoursWorked} 
-                        isTime={true} 
-                    />
-                    
-                    <NumberControl 
-                        label="Tarifa a Cobrar" 
-                        value={rate} 
-                        step={0.25} 
-                        min={0} 
-                        onChange={setRate} 
-                        prefix="$"
-                        isMoney={true}
-                    />
                 </div>
+                
+                <SelectField label="Cliente" value={selectedClientId} onChange={(e: any) => setSelectedClientId(e.target.value)} options={clientProfiles} required />
+                <SelectField label="Caso" value={selectedCaseId} onChange={(e: any) => setSelectedCaseId(e.target.value)} options={filteredCases} disabled={!selectedClientId} required />
+                
+                <div className="md:col-span-2">
+                    <InputField label="Descripción Tarea" value={taskDescription} onChange={(e: any) => setTaskDescription(e.target.value)} required />
+                </div>
+
+                <NumberControl 
+                    label="Tiempo Invertido" 
+                    value={hoursWorked} 
+                    step={5 / 60} 
+                    min={5 / 60} 
+                    onChange={setHoursWorked} 
+                    isTime={true} 
+                />
+                
+                <NumberControl 
+                    label="Tarifa a Cobrar" 
+                    value={rate} 
+                    step={0.25} 
+                    min={0} 
+                    onChange={setRate} 
+                    prefix="$"
+                    isMoney={true}
+                />
             </div>
             
-            <div className="p-4 bg-zinc-900/50 flex justify-between items-center border-t border-zinc-800 mt-4">
+            {/* SOLUCIÓN: Botones al final del formulario, fondo transparente */}
+            <div className="flex justify-between items-center border-t border-zinc-900 mt-10 pt-6 bg-transparent">
                 <div>
                     {editingEntry && (
                         <button type="button" onClick={handleDeleteEntry} className="text-zinc-600 hover:text-red-500 hover:bg-red-950/30 p-3 transition-colors rounded-full" title="Eliminar Registro">
