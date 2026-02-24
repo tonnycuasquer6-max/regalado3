@@ -10,7 +10,6 @@ const getStartOfWeek = (date: Date) => {
   return new Date(d.setDate(diff));
 };
 
-// SOLUCIÓN: Formateador estricto a tiempo LOCAL para evitar el salto de día UTC
 const toYYYYMMDD = (date: Date) => {
     const y = date.getFullYear();
     const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -40,6 +39,50 @@ const SelectField = ({ label, options, ...props }: any) => (
 const Modal: React.FC<{ isOpen: boolean; onClose: () => void; children: React.ReactNode }> = ({ isOpen, onClose, children }) => {
     if (!isOpen) return null;
     return <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 font-mono"><div className="bg-black border border-zinc-800 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">{children}</div></div>;
+};
+
+// SOLUCIÓN PUNTO 5: Algoritmo para calcular la cascada horizontal de tareas superpuestas
+const calculateLayout = (entries: any[]) => {
+    const events = entries.map(e => {
+        const h = parseInt(e.hora_inicio.split(':')[0] || '0');
+        const m = parseInt(e.hora_inicio.split(':')[1] || '0') / 60;
+        return { ...e, start: h + m, end: h + m + e.horas };
+    }).sort((a, b) => a.start - b.start);
+
+    let layout: any = {};
+    let columns: any[][] = [];
+    let lastEventEnding: number | null = null;
+
+    const packEvents = () => {
+        const numCols = columns.length;
+        columns.forEach((col, colIdx) => {
+            col.forEach(ev => {
+                layout[ev.id] = { width: `${100 / numCols}%`, left: `${(100 / numCols) * colIdx}%` };
+            });
+        });
+    };
+
+    events.forEach(ev => {
+        if (lastEventEnding !== null && ev.start >= lastEventEnding) {
+            packEvents();
+            columns = [];
+            lastEventEnding = null;
+        }
+        let placed = false;
+        for (let i = 0; i < columns.length; i++) {
+            if (columns[i][columns[i].length - 1].end <= ev.start) {
+                columns[i].push(ev);
+                placed = true;
+                break;
+            }
+        }
+        if (!placed) columns.push([ev]);
+        if (lastEventEnding === null || ev.end > lastEventEnding) {
+            lastEventEnding = ev.end;
+        }
+    });
+    if (columns.length > 0) packEvents();
+    return layout;
 };
 
 const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) => {
@@ -89,7 +132,7 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
     const endOfWeek = new Date(startOfWeek);
     endOfWeek.setDate(startOfWeek.getDate() + 6);
 
-    let query = supabase.from('time_entries').select('*, profiles(*), cases(*)').gte('fecha_tarea', toYYYYMMDD(startOfWeek)).lte('fecha_tarea', toYYYYMMDD(endOfWeek));
+    let query = supabase.from('time_entries').select('*, profiles(primer_nombre, primer_apellido, rol, color_perfil), cases(titulo, cliente_id)').gte('fecha_tarea', toYYYYMMDD(startOfWeek)).lte('fecha_tarea', toYYYYMMDD(endOfWeek));
     
     if (profile.rol !== 'admin') {
         query = query.eq('perfil_id', profile.id);
@@ -162,11 +205,9 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
     } catch (error: any) { alert(`Error al guardar: ${error.message}`); } finally { setActionLoading(false); }
   };
 
-  // SOLUCIÓN: Fijar el ID en una variable antes de lanzar el popup para no perderlo al borrar
   const handleDeleteEntry = () => {
     if (!editingEntry) return;
     const idToDelete = editingEntry.id;
-
     setConfirmDialog({
         isOpen: true,
         title: '¿ELIMINAR REGISTRO?',
@@ -179,25 +220,9 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
                 setIsModalOpen(false);
                 setEditingEntry(null);
                 await fetchWeekEntries(currentUserProfile);
-            } catch (error: any) { 
-                alert(`Error al eliminar en DB: ${error.message}`); 
-            } finally { 
-                setActionLoading(false); 
-            }
+            } catch (error: any) { alert(`Error: ${error.message}`); } finally { setActionLoading(false); }
         }
     });
-  };
-
-  const handleDragStart = (e: React.DragEvent, entry: TimeEntry) => { e.dataTransfer.setData('text/plain', entry.id.toString()); };
-
-  const handleDrop = async (e: React.DragEvent, date: string, hour: number) => {
-    e.preventDefault();
-    const entryId = e.dataTransfer.getData('text/plain');
-    setTimeEntries(prev => prev.map(entry => entry.id === entryId ? { ...entry, fecha_tarea: date, hora_inicio: `${String(hour).padStart(2, '0')}:00:00` } : entry));
-    try {
-      const { error } = await supabase.from('time_entries').update({ fecha_tarea: date, hora_inicio: `${String(hour).padStart(2, '0')}:00:00` }).eq('id', entryId);
-      if (error) throw error;
-    } catch (err: any) { alert(`Error al mover: ${err.message}`); fetchWeekEntries(currentUserProfile); }
   };
 
   const filteredCases = cases.filter(c => c.cliente_id === selectedClientId);
@@ -233,41 +258,64 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
           </div>
 
           <div className="grid grid-cols-7">
-            {weekDays.map((day, dayIndex) => (
+            {weekDays.map((day, dayIndex) => {
+              const dayStr = toYYYYMMDD(day);
+              const dayEntries = timeEntries.filter(entry => entry.fecha_tarea === dayStr);
+              // Lógica de cálculo de superposición (Cascada)
+              const layout = calculateLayout(dayEntries);
+
+              return (
               <div key={dayIndex} className="border-r border-zinc-800">
                 <div className="text-center p-2 border-b border-zinc-800 h-16 flex flex-col justify-center">
                   <div className="text-xs uppercase text-zinc-500 font-bold">{day.toLocaleDateString('es-ES', { weekday: 'short' })}</div>
                   <div className="text-lg font-bold text-white">{day.getDate()}</div>
                 </div>
                 
-                <div className="relative" onDragOver={(e) => e.preventDefault()}>
+                <div className="relative">
                   <div className="grid" style={{ gridTemplateRows: `repeat(${hours.length}, minmax(60px, auto))` }}>
                     {hours.map((hour, hourIndex) => (
-                      <div key={hourIndex} className="h-[60px] border-b border-zinc-800 hover:bg-zinc-900 cursor-pointer transition-colors" onClick={() => openNewEntryModal(toYYYYMMDD(day), hour)} onDrop={(e) => handleDrop(e, toYYYYMMDD(day), hour)} onDragOver={(e) => e.preventDefault()}></div>
+                      <div key={hourIndex} className="h-[60px] border-b border-zinc-800 hover:bg-zinc-900/50 cursor-pointer transition-colors" onClick={() => openNewEntryModal(dayStr, hour)}></div>
                     ))}
                   </div>
 
+                  {/* SOLUCIÓN PUNTO 4: Diseño Transparente y Color Unico */}
                   <div className="absolute top-0 left-0 w-full h-full pointer-events-none">
-                    {timeEntries.filter(entry => entry.fecha_tarea === toYYYYMMDD(day)).map(entry => {
+                    {dayEntries.map(entry => {
                         const entryHour = parseInt(entry.hora_inicio.split(':')[0]);
                         const top = (entryHour - 6) * 60;
                         const height = entry.horas * 60;
+                        const { width, left } = layout[entry.id];
+                        
+                        // Color Dinámico: Blanco si es admin, el de su perfil, o azul por defecto.
+                        const profileColor = entry.profiles?.color_perfil || (entry.profiles?.rol === 'admin' ? '#ffffff' : '#3b82f6');
+
                         return (
-                          <div key={entry.id} className="absolute w-full p-2 rounded-lg bg-indigo-600 text-xs overflow-hidden shadow-lg border border-indigo-400 cursor-move z-10 pointer-events-auto hover:bg-indigo-500 transition-colors" style={{ top: `${top}px`, height: `${height}px`, left: '2px', right: '2px', width: 'calc(100% - 4px)' }} draggable onDragStart={(e) => handleDragStart(e, entry)} onClick={(e) => { e.stopPropagation(); openEditEntryModal(entry); }}>
-                            <p className="font-bold text-white truncate">{entry.cases?.titulo}</p>
-                            <p className="text-indigo-200 truncate">{entry.descripcion_tarea}</p>
-                            <p className="text-indigo-100 italic opacity-80 mt-1">{entry.profiles?.primer_nombre}</p>
+                          <div key={entry.id} 
+                               className="absolute p-2 bg-black/60 backdrop-blur-md border border-zinc-800 shadow-xl z-10 pointer-events-auto hover:bg-zinc-900 transition-colors overflow-hidden flex flex-col justify-start group" 
+                               style={{ 
+                                   top: `${top}px`, 
+                                   height: `${height}px`, 
+                                   left: `calc(${left} + 2px)`, 
+                                   width: `calc(${width} - 4px)`, 
+                                   borderLeft: `4px solid ${profileColor}` // Franja Izquierda
+                               }} 
+                               onClick={(e) => { e.stopPropagation(); openEditEntryModal(entry); }}>
+                            
+                            <p className="font-bold text-white text-[10px] uppercase tracking-wider truncate mb-1" style={{ color: profileColor }}>{entry.cases?.titulo}</p>
+                            <p className="text-zinc-300 text-[9px] leading-tight line-clamp-2">{entry.descripcion_tarea}</p>
+                            <p className="text-zinc-500 text-[8px] uppercase tracking-widest mt-auto pt-1 truncate opacity-50 group-hover:opacity-100">{entry.profiles?.primer_nombre}</p>
                           </div>
                         )
                       })}
                   </div>
                 </div>
               </div>
-            ))}
+            )})}
           </div>
         </div>
       </div>
 
+      {/* MODAL DE EDICIÓN (No cambia) */}
       <Modal isOpen={isModalOpen && !!selectedSlot} onClose={() => setIsModalOpen(false)}>
         <form onSubmit={handleSaveEntry}>
             <div className="p-8">
@@ -275,7 +323,7 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
                     <InputField label="Fecha" type="date" value={selectedSlot?.date || ''} readOnly />
                     <div>
-                        <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">Abogado</label>
+                        <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">Trabajador</label>
                         <div className="w-full py-2 px-0 bg-transparent border-b-2 border-zinc-800 text-white opacity-70">
                             {editingEntry ? `${editingEntry.profiles?.primer_nombre} ${editingEntry.profiles?.primer_apellido}` : `${currentUserProfile?.primer_nombre} ${currentUserProfile?.primer_apellido}`}
                         </div>
@@ -317,7 +365,6 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
               </div>
           </div>
       </Modal>
-
     </Fragment>
   );
 };

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../services/supabaseClient';
 import { CheckIcon } from '../shared/Icons';
@@ -24,6 +23,7 @@ interface ProfileFormState {
     email: string;
     password: string;
     confirmPassword: string;
+    color_perfil: string; // <-- Nuevo campo
 }
 
 interface PasswordValidation {
@@ -45,6 +45,12 @@ interface UserManagementViewProps {
     onCancel: () => void;
 }
 
+// --- Paleta de colores para trabajadores ---
+const PROFILE_COLORS = [
+    '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899',
+    '#06b6d4', '#f97316', '#6366f1', '#14b8a6', '#f43f5e', '#84cc16'
+];
+
 // --- Initial States ---
 const initialFormState: ProfileFormState = {
     primer_nombre: '',
@@ -56,6 +62,7 @@ const initialFormState: ProfileFormState = {
     email: '',
     password: '',
     confirmPassword: '',
+    color_perfil: '',
 };
 
 const initialPasswordValidation: PasswordValidation = {
@@ -90,8 +97,24 @@ const UserManagementView: React.FC<UserManagementViewProps> = ({ preselectedRole
     const [photoPreview, setPhotoPreview] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+
+    // Estado para controlar colores ya en uso
+    const [usedColors, setUsedColors] = useState<string[]>([]);
     
     const allPasswordRequirementsMet = Object.values(passwordValidation).every(Boolean);
+
+    // Cargar colores ocupados al iniciar el componente
+    useEffect(() => {
+        const fetchUsedColors = async () => {
+            if (selectedRoleConfig?.rol === 'trabajador') {
+                const { data } = await supabase.from('profiles').select('color_perfil').not('color_perfil', 'is', null);
+                if (data) {
+                    setUsedColors(data.map(p => p.color_perfil));
+                }
+            }
+        };
+        fetchUsedColors();
+    }, [selectedRoleConfig]);
 
     useEffect(() => {
         const { password } = formData;
@@ -123,7 +146,16 @@ const UserManagementView: React.FC<UserManagementViewProps> = ({ preselectedRole
         }
     };
     
-    const nextStep = () => setStep(prev => prev + 1);
+    // Validación extra antes de pasar al paso 2
+    const nextStep = () => {
+        if (selectedRoleConfig?.rol === 'trabajador' && !formData.color_perfil) {
+            setError("Debe seleccionar un color de identificación para el trabajador.");
+            return;
+        }
+        setError(null);
+        setStep(prev => prev + 1);
+    };
+    
     const prevStep = () => setStep(prev => prev - 1);
 
     const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -165,6 +197,7 @@ const UserManagementView: React.FC<UserManagementViewProps> = ({ preselectedRole
                     rol: selectedRoleConfig.rol,
                     categoria_usuario: selectedRoleConfig.categoria_usuario,
                     foto_url: final_foto_url,
+                    color_perfil: formData.color_perfil || null // Guardar el color
                 };
                 
                 if (selectedRoleConfig.categoria_usuario === 'abogado') {
@@ -255,8 +288,9 @@ const UserManagementView: React.FC<UserManagementViewProps> = ({ preselectedRole
                 <form onSubmit={handleSubmit}>
                     {step === 1 && (
                         <div className="space-y-12 animate-in fade-in slide-in-from-bottom-8 duration-700">
+                            
                             <div className="flex flex-col items-center space-y-10">
-                                <div className="relative w-56 h-56 rounded-full bg-black border-[2px] border-zinc-900 flex items-center justify-center overflow-hidden">
+                                <div className="relative w-56 h-56 rounded-full bg-black border-[2px] border-zinc-900 flex items-center justify-center overflow-hidden" style={{ borderColor: formData.color_perfil || '#18181b' }}>
                                     {photoPreview ? (
                                         <img src={photoPreview} alt="Preview" className="w-full h-full object-cover" />
                                     ) : (
@@ -281,6 +315,37 @@ const UserManagementView: React.FC<UserManagementViewProps> = ({ preselectedRole
                                     <InputField label="Matrícula Prof." name="matricula_nro" value={formData.matricula_nro} onChange={handleInputChange} required />
                                 )}
                             </div>
+
+                            {/* SELECCIÓN DE COLOR EXCLUSIVO (SOLO PARA TRABAJADORES) */}
+                            {selectedRoleConfig.rol === 'trabajador' && (
+                                <div className="pt-8 border-t border-zinc-900">
+                                    <label className="block text-zinc-500 text-[11px] font-black uppercase tracking-[0.3em] mb-6 text-center">
+                                        Color de Identificación en Time Billing
+                                    </label>
+                                    <div className="flex flex-wrap justify-center gap-4 max-w-2xl mx-auto">
+                                        {PROFILE_COLORS.map(color => {
+                                            const isUsed = usedColors.includes(color);
+                                            const isSelected = formData.color_perfil === color;
+                                            return (
+                                                <button
+                                                    key={color}
+                                                    type="button"
+                                                    disabled={isUsed && !isSelected}
+                                                    onClick={() => setFormData({ ...formData, color_perfil: color })}
+                                                    className={`w-12 h-12 rounded-full transition-all duration-300 relative ${isUsed && !isSelected ? 'opacity-20 cursor-not-allowed grayscale' : 'hover:scale-110 cursor-pointer'} ${isSelected ? 'ring-4 ring-white scale-110' : ''}`}
+                                                    style={{ backgroundColor: color }}
+                                                    title={isUsed ? 'Color ya en uso por otro trabajador' : 'Seleccionar color'}
+                                                >
+                                                    {isSelected && <CheckIcon className="absolute inset-0 m-auto text-white w-6 h-6 stroke-[3] drop-shadow-md" />}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                    <p className="text-center text-[10px] text-zinc-600 mt-4 uppercase tracking-widest">
+                                        Este color se usará para diferenciar sus actividades en el calendario general.
+                                    </p>
+                                </div>
+                            )}
 
                             <div className="flex items-center justify-end gap-10 pt-12">
                                  <button type="button" onClick={onCancel} className="text-zinc-400 hover:text-white font-black py-3 px-8 transition-colors uppercase text-[10px] tracking-[0.3em]">

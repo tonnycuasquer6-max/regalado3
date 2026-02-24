@@ -6,7 +6,7 @@ import ReportsView from './ReportsView';
 import AdminHome from './AdminHome';
 import TimeBillingMaestro from './TimeBillingMaestro';
 import ListaPerfiles from './ListaPerfiles';
-import AdminProfile from './AdminProfile'; // <-- IMPORTANTE: Nuestro archivo nuevo
+import AdminProfile from './AdminProfile'; 
 
 interface ViewConfig {
     name: string;
@@ -27,19 +27,22 @@ const AdminDashboard: React.FC<{ session: Session }> = ({ session }) => {
     const { name: activeView, params = {} } = activeViewConfig;
 
     const renderContent = () => {
+        // SOLUCIÓN PUNTO 2: Esta 'key' obliga a React a refrescar el componente si cambian los parámetros del menú
+        const componentKey = `${activeView}-${JSON.stringify(params)}`;
+
         switch (activeView) {
             case 'USERS':
-                return <UserManagementView {...params} onCancel={() => setActiveViewConfig({ name: 'HOME' })} />;
+                return <UserManagementView key={componentKey} {...params} onCancel={() => setActiveViewConfig({ name: 'HOME' })} />;
             case 'PROFILES':
-                return <ListaPerfiles {...params} onCancel={() => setActiveViewConfig({ name: 'HOME' })} />;
+                return <ListaPerfiles key={componentKey} {...params} onCancel={() => setActiveViewConfig({ name: 'HOME' })} />;
             case 'APPROVALS':
-                return <ApprovalsView setActiveView={setActiveViewConfig} onCancel={() => setActiveViewConfig({ name: 'HOME' })} />;
+                return <ApprovalsView key={componentKey} setActiveView={setActiveViewConfig} onCancel={() => setActiveViewConfig({ name: 'HOME' })} />;
             case 'REPORTS':
-                return <ReportsView onCancel={() => setActiveViewConfig({ name: 'HOME' })} />;
+                return <ReportsView key={componentKey} onCancel={() => setActiveViewConfig({ name: 'HOME' })} />;
             case 'TIME_BILLING': 
-                return <TimeBillingMaestro onCancel={() => setActiveViewConfig({ name: 'HOME' })} />;
-            case 'PROFILE': // <-- RUTA NUEVA AL PERFIL
-                return <AdminProfile session={session} onCancel={() => setActiveViewConfig({ name: 'HOME' })} />;
+                return <TimeBillingMaestro key={componentKey} onCancel={() => setActiveViewConfig({ name: 'HOME' })} />;
+            case 'PROFILE': 
+                return <AdminProfile key={componentKey} session={session} onCancel={() => setActiveViewConfig({ name: 'HOME' })} />;
             default:
                 return null;
         }
