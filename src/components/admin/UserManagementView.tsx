@@ -23,7 +23,7 @@ interface ProfileFormState {
     email: string;
     password: string;
     confirmPassword: string;
-    color_perfil: string; // <-- Nuevo campo
+    color_perfil: string;
 }
 
 interface PasswordValidation {
@@ -103,7 +103,6 @@ const UserManagementView: React.FC<UserManagementViewProps> = ({ preselectedRole
     
     const allPasswordRequirementsMet = Object.values(passwordValidation).every(Boolean);
 
-    // Cargar colores ocupados al iniciar el componente
     useEffect(() => {
         const fetchUsedColors = async () => {
             if (selectedRoleConfig?.rol === 'trabajador') {
@@ -146,7 +145,6 @@ const UserManagementView: React.FC<UserManagementViewProps> = ({ preselectedRole
         }
     };
     
-    // Validación extra antes de pasar al paso 2
     const nextStep = () => {
         if (selectedRoleConfig?.rol === 'trabajador' && !formData.color_perfil) {
             setError("Debe seleccionar un color de identificación para el trabajador.");
@@ -197,7 +195,7 @@ const UserManagementView: React.FC<UserManagementViewProps> = ({ preselectedRole
                     rol: selectedRoleConfig.rol,
                     categoria_usuario: selectedRoleConfig.categoria_usuario,
                     foto_url: final_foto_url,
-                    color_perfil: formData.color_perfil || null // Guardar el color
+                    color_perfil: formData.color_perfil || null
                 };
                 
                 if (selectedRoleConfig.categoria_usuario === 'abogado') {
@@ -235,6 +233,10 @@ const UserManagementView: React.FC<UserManagementViewProps> = ({ preselectedRole
     if (view === 'success') {
         return (
             <div className="flex flex-col items-center justify-center min-h-[75vh] py-16 px-6 bg-black animate-in fade-in duration-1000">
+                <style>{`
+                    ::-webkit-scrollbar { width: 0px !important; height: 0px !important; background: transparent !important; display: none !important; }
+                    * { -ms-overflow-style: none !important; scrollbar-width: none !important; }
+                `}</style>
                 <div className="mb-14 relative group">
                     <div className="absolute inset-0 bg-white rounded-full blur-[60px] opacity-20 animate-pulse"></div>
                     <div className="relative flex items-center justify-center bg-black rounded-full w-48 h-48 border-[2px] border-white shadow-[0_0_80px_rgba(255,255,255,0.4)]">
@@ -266,6 +268,20 @@ const UserManagementView: React.FC<UserManagementViewProps> = ({ preselectedRole
 
     return (
         <div className="max-w-6xl mx-auto">
+            {/* CÓDIGO PARA DESAPARECER LA BARRA DE SCROLL */}
+            <style>{`
+                ::-webkit-scrollbar {
+                    width: 0px !important;
+                    height: 0px !important;
+                    background: transparent !important;
+                    display: none !important;
+                }
+                * {
+                    -ms-overflow-style: none !important;
+                    scrollbar-width: none !important;
+                }
+            `}</style>
+
             <header className="mb-10 flex items-center justify-between border-b border-zinc-900 pb-6">
                 <h1 className="text-4xl font-black tracking-tighter uppercase italic text-white">{selectedRoleConfig.title}</h1>
                 <div className="text-[10px] font-black text-white tracking-[0.3em] uppercase opacity-80">Sincronización Segura</div>
@@ -316,7 +332,6 @@ const UserManagementView: React.FC<UserManagementViewProps> = ({ preselectedRole
                                 )}
                             </div>
 
-                            {/* SELECCIÓN DE COLOR EXCLUSIVO (SOLO PARA TRABAJADORES) */}
                             {selectedRoleConfig.rol === 'trabajador' && (
                                 <div className="pt-8 border-t border-zinc-900">
                                     <label className="block text-zinc-500 text-[11px] font-black uppercase tracking-[0.3em] mb-6 text-center">

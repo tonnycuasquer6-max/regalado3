@@ -85,6 +85,21 @@ const ReportsView: React.FC<ReportsViewProps> = ({ onCancel }) => {
 
     return (
         <div className="max-w-5xl mx-auto animate-in fade-in duration-500 font-mono text-white pb-12 relative">
+            
+            {/* ESTILO GLOBAL PARA DESAPARECER LA BARRA DE SCROLL */}
+            <style>{`
+                ::-webkit-scrollbar {
+                    width: 0px !important;
+                    height: 0px !important;
+                    background: transparent !important;
+                    display: none !important;
+                }
+                * {
+                    -ms-overflow-style: none !important;
+                    scrollbar-width: none !important;
+                }
+            `}</style>
+
             <header className="flex items-center justify-between mb-8 pb-4 border-b border-zinc-900">
                 <h1 className="text-3xl font-black uppercase tracking-tighter italic text-white">Reportes de Rendimiento</h1>
                 <div className="flex items-center gap-4">
@@ -100,7 +115,6 @@ const ReportsView: React.FC<ReportsViewProps> = ({ onCancel }) => {
                 </div>
             </header>
 
-            {/* NAVEGADOR DE MESES NORMAL (Baja con el scroll) */}
             <div className="flex items-center justify-between border-b border-zinc-900 pb-6 mb-8">
                 <button onClick={handlePrevMonth} className="p-2 text-zinc-500 hover:text-white transition-colors bg-zinc-950 border border-zinc-900 rounded-full"><ChevronLeftIcon /></button>
                 <h3 className="text-xl font-bold tracking-widest text-zinc-300">{monthName}</h3>
