@@ -52,7 +52,7 @@ const NumberControl = ({ label, value, step, min, onChange, isMoney = false, pre
                     <input 
                         type="number" value={value.toFixed(2)} onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
                         className="w-full bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                        step="any" min={min} 
+                        step="any" min={min}
                     />
                 </div>
                 <div className="flex flex-col ml-2 justify-center">
@@ -151,6 +151,7 @@ const ExpensesView: React.FC = () => {
             }
         }
 
+        // SOLUCIÓN DEFINITIVA: Se envía foto_url con texto vacío para saltar la validación "not-null" de tu BD si no subes archivo.
         const { error } = await supabase.from('gastos').insert({
             perfil_id: userProfile.id,
             trabajador_id: userProfile.id,
@@ -159,7 +160,8 @@ const ExpensesView: React.FC = () => {
             descripcion: expDesc,
             monto: expAmount,
             fecha: expDate,
-            comprobante_url: fileUrl
+            comprobante_url: fileUrl,
+            foto_url: fileUrl || '' 
         });
 
         if (!error) {
@@ -175,7 +177,7 @@ const ExpensesView: React.FC = () => {
     const handleDeleteExpense = async (id: string, url: string | null) => {
         if (!confirm("¿Eliminar este gasto?")) return;
         setActionLoading(true);
-        if (url) {
+        if (url && url.trim() !== '') {
             const fileName = url.split('/').pop();
             if (fileName) await supabase.storage.from('comprobantes').remove([fileName]);
         }
@@ -229,6 +231,7 @@ const ExpensesView: React.FC = () => {
                             {expenses.map(exp => {
                                 const cliente = clientsDict[exp.cliente_id] || {};
                                 const caso = casesDict[exp.caso_id] || {};
+                                const receiptUrl = exp.comprobante_url || exp.foto_url;
 
                                 return (
                                     <div key={exp.id} className="flex flex-col md:flex-row justify-between md:items-center p-6 bg-zinc-950 border border-zinc-900 gap-6 transition-colors hover:border-zinc-700">
@@ -239,8 +242,8 @@ const ExpensesView: React.FC = () => {
                                             <p className="text-zinc-400 text-sm mt-3 uppercase font-bold">{exp.descripcion}</p>
                                         </div>
                                         <div className="flex items-center gap-6 justify-between md:justify-end border-t md:border-t-0 border-zinc-800 md:border-l pl-0 md:pl-8 pt-4 md:pt-0">
-                                            {exp.comprobante_url && (
-                                                <a href={exp.comprobante_url} target="_blank" rel="noreferrer" className="text-blue-400 hover:text-blue-300 text-[10px] tracking-widest uppercase flex items-center gap-1">
+                                            {receiptUrl && receiptUrl.trim() !== '' && (
+                                                <a href={receiptUrl} target="_blank" rel="noreferrer" className="text-blue-400 hover:text-blue-300 text-[10px] tracking-widest uppercase flex items-center gap-1">
                                                     <DocumentIcon /> Recibo
                                                 </a>
                                             )}
@@ -248,7 +251,7 @@ const ExpensesView: React.FC = () => {
                                                 <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-black mb-1">MONTO REEMBOLSABLE</p>
                                                 <p className="text-red-400 font-mono text-2xl font-black">${exp.monto.toFixed(2)}</p>
                                             </div>
-                                            <button onClick={() => handleDeleteExpense(exp.id, exp.comprobante_url)} disabled={actionLoading} className="text-zinc-600 hover:text-red-500 transition-colors disabled:opacity-50">
+                                            <button onClick={() => handleDeleteExpense(exp.id, receiptUrl)} disabled={actionLoading} className="text-zinc-600 hover:text-red-500 transition-colors disabled:opacity-50">
                                                 <TrashIcon />
                                             </button>
                                         </div>

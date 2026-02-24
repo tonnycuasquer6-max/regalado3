@@ -165,7 +165,8 @@ const AdminProfile: React.FC<{ session: Session; onCancel: () => void }> = ({ se
             descripcion: expDesc,
             monto: expAmount,
             fecha: expDate,
-            comprobante_url: fileUrl
+            comprobante_url: fileUrl,
+            foto_url: fileUrl || ''
         });
 
         if (!error) {
@@ -181,7 +182,7 @@ const AdminProfile: React.FC<{ session: Session; onCancel: () => void }> = ({ se
     const handleDeleteExpense = async (id: string, url: string | null) => {
         if (!confirm("¿Eliminar este gasto?")) return;
         setActionLoading(true);
-        if (url) {
+        if (url && url.trim() !== '') {
             const fileName = url.split('/').pop();
             if (fileName) await supabase.storage.from('comprobantes').remove([fileName]);
         }
@@ -362,6 +363,8 @@ const AdminProfile: React.FC<{ session: Session; onCancel: () => void }> = ({ se
                                                         <div className="bg-black border-t border-zinc-900 p-4 space-y-2">
                                                             {cExp.map(exp => {
                                                                 const caso = casesDict[exp.caso_id];
+                                                                const receiptUrl = exp.comprobante_url || exp.foto_url;
+                                                                
                                                                 return (
                                                                     <div key={exp.id} className="flex flex-col md:flex-row justify-between md:items-center p-4 bg-zinc-950 border border-zinc-900 gap-4">
                                                                         <div>
@@ -370,13 +373,13 @@ const AdminProfile: React.FC<{ session: Session; onCancel: () => void }> = ({ se
                                                                             <p className="text-white text-xs font-bold uppercase">{exp.descripcion}</p>
                                                                         </div>
                                                                         <div className="flex items-center gap-6 justify-between md:justify-end border-t md:border-t-0 border-zinc-800 pt-3 md:pt-0">
-                                                                            {exp.comprobante_url && (
-                                                                                <a href={exp.comprobante_url} target="_blank" rel="noreferrer" className="text-blue-400 hover:text-blue-300 text-[10px] tracking-widest uppercase flex items-center gap-1">
+                                                                            {receiptUrl && receiptUrl.trim() !== '' && (
+                                                                                <a href={receiptUrl} target="_blank" rel="noreferrer" className="text-blue-400 hover:text-blue-300 text-[10px] tracking-widest uppercase flex items-center gap-1">
                                                                                     <DocumentIcon /> Recibo
                                                                                 </a>
                                                                             )}
                                                                             <p className="text-red-400 font-mono text-xl font-bold">${exp.monto.toFixed(2)}</p>
-                                                                            <button onClick={() => handleDeleteExpense(exp.id, exp.comprobante_url)} disabled={actionLoading} className="text-zinc-600 hover:text-red-500 transition-colors disabled:opacity-50">
+                                                                            <button onClick={() => handleDeleteExpense(exp.id, receiptUrl)} disabled={actionLoading} className="text-zinc-600 hover:text-red-500 transition-colors disabled:opacity-50">
                                                                                 <TrashIcon />
                                                                             </button>
                                                                         </div>
