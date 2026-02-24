@@ -186,20 +186,18 @@ const AdminProfile: React.FC<{ session: Session; onCancel: () => void }> = ({ se
 
     const toggleClientTab = (clientId: string, tab: 'time' | 'expenses') => {
         if (activeClientTab.id === clientId && activeClientTab.tab === tab) {
-            setActiveClientTab({ id: '', tab: null }); // Cerrar si ya está abierto
+            setActiveClientTab({ id: '', tab: null }); 
         } else {
-            setActiveClientTab({ id: clientId, tab }); // Abrir nueva pestaña
+            setActiveClientTab({ id: clientId, tab }); 
         }
     };
 
-    // Cálculos Generales
     const totalHours = timeEntries.reduce((acc, curr) => acc + (curr.horas || 0), 0);
     const totalIncome = timeEntries.reduce((acc, curr) => acc + ((curr.horas || 0) * (curr.tarifa_personalizada || 0)), 0);
     const totalExpenses = expenses.reduce((acc, curr) => acc + (curr.monto || 0), 0);
     const finalTotal = totalIncome + totalExpenses;
     const monthName = currentMonth.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }).toUpperCase();
 
-    // Agrupación por Clientes para el bloque de "Ver Registros"
     const clientsWithActivity = Object.values(clientsDict).map(client => {
         const cTime = timeEntries.filter(te => te.caso?.cliente_id === client.id);
         const cExp = expenses.filter(ex => ex.cliente_id === client.id);
@@ -249,13 +247,15 @@ const AdminProfile: React.FC<{ session: Session; onCancel: () => void }> = ({ se
                     </button>
                 </div>
 
-                <div className="sticky top-20 z-40 bg-black pt-4 pb-4 border-b border-zinc-900 mb-8 -mx-4 px-4 sm:-mx-8 sm:px-8 shadow-xl shadow-black flex items-center justify-between">
-                    <button onClick={handlePrevMonth} className="p-2 text-zinc-500 hover:text-white transition-colors bg-zinc-950 border border-zinc-900 rounded-full"><ChevronLeftIcon /></button>
-                    <h3 className="text-xl font-bold tracking-widest text-zinc-300">{monthName}</h3>
-                    <button onClick={handleNextMonth} className="p-2 text-zinc-500 hover:text-white transition-colors bg-zinc-950 border border-zinc-900 rounded-full"><ChevronRightIcon /></button>
-                </div>
-
                 <div className="bg-black border border-zinc-800 shadow-2xl shadow-black/50 p-8">
+                    
+                    {/* SOLUCIÓN: NAVEGADOR NORMAL (Ya no es sticky, fluye con la página) */}
+                    <div className="flex items-center justify-between border-b border-zinc-900 pb-6 mb-8">
+                        <button onClick={handlePrevMonth} className="p-2 text-zinc-500 hover:text-white transition-colors bg-zinc-950 border border-zinc-900 rounded-full"><ChevronLeftIcon /></button>
+                        <h3 className="text-xl font-bold tracking-widest text-zinc-300">{monthName}</h3>
+                        <button onClick={handleNextMonth} className="p-2 text-zinc-500 hover:text-white transition-colors bg-zinc-950 border border-zinc-900 rounded-full"><ChevronRightIcon /></button>
+                    </div>
+
                     {loading ? (
                         <p className="text-zinc-500 text-center py-12 animate-pulse uppercase tracking-widest text-xs font-bold">Calculando reporte mensual...</p>
                     ) : (
@@ -281,7 +281,6 @@ const AdminProfile: React.FC<{ session: Session; onCancel: () => void }> = ({ se
                                 </div>
                             </div>
 
-                            {/* SOLUCIÓN: VISTA AGRUPADA POR CLIENTE */}
                             {showRecords && (
                                 <div className="mb-8 animate-in fade-in slide-in-from-top-4 duration-500">
                                     <p className="text-[10px] font-black uppercase text-zinc-600 tracking-[0.3em] mb-4">DETALLE DE ACTIVIDAD POR CLIENTE</p>
@@ -295,7 +294,6 @@ const AdminProfile: React.FC<{ session: Session; onCancel: () => void }> = ({ se
                                             {clientsWithActivity.map(({ client, cTime, cExp, cTotalHrs, cTotalInc, cTotalExp }) => (
                                                 <div key={client.id} className="bg-zinc-950 border border-zinc-900 transition-colors hover:border-zinc-700">
                                                     
-                                                    {/* FILA DEL CLIENTE */}
                                                     <div className="p-4 flex flex-col md:flex-row justify-between md:items-center gap-4">
                                                         <div className="flex items-center gap-4 flex-grow">
                                                             <img src={client.foto_url || 'https://via.placeholder.com/150'} className="w-12 h-12 rounded-full border-2 border-zinc-800 object-cover flex-shrink-0" />
@@ -316,7 +314,6 @@ const AdminProfile: React.FC<{ session: Session; onCancel: () => void }> = ({ se
                                                             </div>
                                                         </div>
                                                         
-                                                        {/* TOTALES DEL CLIENTE */}
                                                         <div className="flex gap-6 text-right w-full md:w-auto justify-end border-t md:border-t-0 border-zinc-900 pt-4 md:pt-0">
                                                             <div>
                                                                 <p className="text-[9px] text-zinc-600 uppercase tracking-widest font-black mb-1">TIEMPO</p>
@@ -329,7 +326,6 @@ const AdminProfile: React.FC<{ session: Session; onCancel: () => void }> = ({ se
                                                         </div>
                                                     </div>
 
-                                                    {/* PESTAÑA: TIME BILLING (Para este cliente) */}
                                                     {activeClientTab.id === client.id && activeClientTab.tab === 'time' && (
                                                         <div className="bg-black border-t border-zinc-900 p-4 space-y-2">
                                                             {cTime.map(te => {
@@ -357,7 +353,6 @@ const AdminProfile: React.FC<{ session: Session; onCancel: () => void }> = ({ se
                                                         </div>
                                                     )}
 
-                                                    {/* PESTAÑA: GASTOS (Para este cliente) */}
                                                     {activeClientTab.id === client.id && activeClientTab.tab === 'expenses' && (
                                                         <div className="bg-black border-t border-zinc-900 p-4 space-y-2">
                                                             {cExp.map(exp => {
@@ -395,53 +390,52 @@ const AdminProfile: React.FC<{ session: Session; onCancel: () => void }> = ({ se
                     )}
                 </div>
 
-                {/* MODAL PARA CREAR GASTO ACTUALIZADO (AÑADIDO CLIENTE Y CASO) */}
+                {/* SOLUCIÓN: FORMULARIO SCROLLABLE COMPLETO HASTA EL BOTÓN */}
                 <Modal isOpen={isExpenseModalOpen} onClose={() => setIsExpenseModalOpen(false)}>
-                    <form onSubmit={handleSaveExpense} className="flex flex-col h-full overflow-hidden">
-                        <div className="p-8 overflow-y-auto flex-grow">
-                            <h2 className="text-xl font-bold mb-8 italic tracking-widest uppercase text-white">REGISTRAR GASTO</h2>
+                    <form onSubmit={handleSaveExpense} className="p-8 overflow-y-auto max-h-[85vh]">
+                        <h2 className="text-xl font-bold mb-8 italic tracking-widest uppercase text-white">REGISTRAR GASTO</h2>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+                            <div>
+                                <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">Trabajador</label>
+                                <div className="w-full py-2 px-0 bg-transparent border-b-2 border-zinc-800 text-white opacity-70">
+                                    {profileData?.primer_nombre} {profileData?.primer_apellido}
+                                </div>
+                            </div>
+
+                            <InputField label="Fecha" type="date" value={expDate} onChange={(e: any) => setExpDate(e.target.value)} required />
                             
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
-                                <div>
-                                    <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">Trabajador</label>
-                                    <div className="w-full py-2 px-0 bg-transparent border-b-2 border-zinc-800 text-white opacity-70">
-                                        {profileData?.primer_nombre} {profileData?.primer_apellido}
-                                    </div>
-                                </div>
+                            <SelectField label="Cliente" value={expClientId} onChange={(e: any) => setExpClientId(e.target.value)} options={clientOptions} required />
+                            <SelectField label="Caso" value={expCaseId} onChange={(e: any) => setExpCaseId(e.target.value)} options={filteredCases} disabled={!expClientId} required />
 
-                                <InputField label="Fecha" type="date" value={expDate} onChange={(e: any) => setExpDate(e.target.value)} required />
-                                
-                                <SelectField label="Cliente" value={expClientId} onChange={(e: any) => setExpClientId(e.target.value)} options={clientOptions} required />
-                                <SelectField label="Caso" value={expCaseId} onChange={(e: any) => setExpCaseId(e.target.value)} options={filteredCases} disabled={!expClientId} required />
+                            <div className="md:col-span-2">
+                                <InputField label="Descripción del Gasto" value={expDesc} onChange={(e: any) => setExpDesc(e.target.value)} required />
+                            </div>
 
-                                <div className="md:col-span-2">
-                                    <InputField label="Descripción del Gasto" value={expDesc} onChange={(e: any) => setExpDesc(e.target.value)} required />
-                                </div>
+                            <NumberControl 
+                                label="Monto Reembolsable" 
+                                value={expAmount} 
+                                step={0.25} 
+                                min={0} 
+                                onChange={setExpAmount} 
+                                prefix="$"
+                                isMoney={true}
+                            />
 
-                                <NumberControl 
-                                    label="Monto Reembolsable" 
-                                    value={expAmount} 
-                                    step={0.25} 
-                                    min={0} 
-                                    onChange={setExpAmount} 
-                                    prefix="$"
-                                    isMoney={true}
-                                />
-
-                                <div>
-                                    <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">Factura (Opcional)</label>
-                                    <div className="flex items-center gap-4 border-b-2 border-zinc-800 pb-1">
-                                        <input type="file" ref={fileInputRef} className="hidden" accept="image/*,.pdf" onChange={(e: any) => setExpFile(e.target.files ? e.target.files[0] : null)} />
-                                        <button type="button" onClick={() => fileInputRef.current?.click()} className={`text-zinc-600 hover:text-white transition-colors p-1 ${expFile ? 'text-green-500' : ''}`}>
-                                            <PaperClipIcon />
-                                        </button>
-                                        <span className="text-xs text-zinc-400 font-mono truncate">{expFile ? expFile.name : 'Ningún archivo adjunto'}</span>
-                                    </div>
+                            <div>
+                                <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">Factura (Opcional)</label>
+                                <div className="flex items-center gap-4 border-b-2 border-zinc-800 pb-1">
+                                    <input type="file" ref={fileInputRef} className="hidden" accept="image/*,.pdf" onChange={(e: any) => setExpFile(e.target.files ? e.target.files[0] : null)} />
+                                    <button type="button" onClick={() => fileInputRef.current?.click()} className={`text-zinc-600 hover:text-white transition-colors p-1 ${expFile ? 'text-green-500' : ''}`}>
+                                        <PaperClipIcon />
+                                    </button>
+                                    <span className="text-xs text-zinc-400 font-mono truncate">{expFile ? expFile.name : 'Ningún archivo adjunto'}</span>
                                 </div>
                             </div>
                         </div>
 
-                        <div className="flex justify-end items-center border-t border-zinc-900 mt-10 p-8 pt-6 bg-transparent flex-shrink-0 gap-4">
+                        {/* Botones integrados al final de los datos */}
+                        <div className="flex justify-end items-center border-t border-zinc-900 mt-10 pt-6 gap-4">
                             <button type="button" onClick={() => setIsExpenseModalOpen(false)} className="text-zinc-500 text-[10px] font-bold tracking-widest hover:text-white uppercase transition-colors">CANCELAR</button>
                             <button type="submit" disabled={actionLoading} className="bg-white text-black font-bold py-2 px-6 text-[10px] tracking-widest uppercase hover:bg-zinc-300 transition-colors disabled:opacity-50">GUARDAR GASTO</button>
                         </div>
