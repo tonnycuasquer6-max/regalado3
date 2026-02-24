@@ -17,6 +17,10 @@ const toYYYYMMDD = (date: Date) => {
     return `${y}-${m}-${d}`;
 };
 
+// Íconos más pequeños y compactos para apilarlos a la derecha
+const ChevronUpIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" /></svg>;
+const ChevronDownIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>;
+
 const InputField = ({ label, type = 'text', ...props }: any) => (
     <div>
         <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">{label}</label>
@@ -35,6 +39,68 @@ const SelectField = ({ label, options, ...props }: any) => (
         </select>
     </div>
 );
+
+// SOLUCIÓN PUNTO 1 Y 2: Flechas a la derecha y diseño verde para dinero
+const NumberControl = ({ label, value, step, min, onChange, isTime = false, isMoney = false, prefix = '' }: any) => {
+    const handleDecrease = () => {
+        let newVal = value - step;
+        if (newVal < min) newVal = min;
+        onChange(Math.round(newVal * 10000) / 10000); 
+    };
+    
+    const handleIncrease = () => {
+        let newVal = value + step;
+        onChange(Math.round(newVal * 10000) / 10000);
+    };
+
+    const formatTime = (decimalHours: number) => {
+        const totalMinutes = Math.round(decimalHours * 60);
+        const h = Math.floor(totalMinutes / 60);
+        const m = totalMinutes % 60;
+        return `${h}h ${m}m`;
+    };
+
+    // Estilos condicionales si es dinero (Tarifa)
+    const textColor = isMoney ? 'text-green-400' : 'text-white';
+    const borderColor = isMoney ? 'border-green-900/50 focus-within:border-green-500' : 'border-zinc-800 focus-within:border-zinc-500';
+    const labelColor = isMoney ? 'text-green-700' : 'text-zinc-500';
+
+    return (
+        <div>
+            <label className={`block text-[10px] font-black mb-2 uppercase tracking-[0.3em] ${labelColor}`}>{label}</label>
+            <div className={`flex items-center bg-transparent border-b-2 transition-colors group pb-1 ${borderColor}`}>
+                
+                <div className={`flex-grow flex justify-start items-center font-mono text-xl ${textColor}`}>
+                    {prefix && <span className="mr-1 opacity-70">{prefix}</span>}
+                    <input 
+                        type="number" 
+                        value={value.toFixed(2)} 
+                        onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
+                        className="w-full bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        step={step}
+                        min={min}
+                    />
+                </div>
+
+                {/* Flechas apiladas a la derecha */}
+                <div className="flex flex-col ml-2 justify-center">
+                    <button type="button" onClick={handleIncrease} className={`hover:text-white transition-colors flex items-center justify-center p-0.5 ${isMoney ? 'text-green-700 hover:text-green-400' : 'text-zinc-600'}`}>
+                        <ChevronUpIcon />
+                    </button>
+                    <button type="button" onClick={handleDecrease} className={`hover:text-white transition-colors flex items-center justify-center p-0.5 mt-0.5 ${isMoney ? 'text-green-700 hover:text-green-400' : 'text-zinc-600'}`}>
+                        <ChevronDownIcon />
+                    </button>
+                </div>
+            </div>
+
+            {isTime && (
+                <div className="text-xs text-zinc-500 font-mono mt-3 text-left uppercase tracking-widest">
+                    equivale a: <span className="text-zinc-300 font-bold ml-1">{formatTime(value)}</span>
+                </div>
+            )}
+        </div>
+    );
+};
 
 const Modal: React.FC<{ isOpen: boolean; onClose: () => void; children: React.ReactNode }> = ({ isOpen, onClose, children }) => {
     if (!isOpen) return null;
@@ -94,6 +160,7 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
   
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState<{ date: string; hour: number } | null>(null);
@@ -225,14 +292,21 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
     });
   };
 
-  // --- SOLUCIÓN ERROR 1: RE-AGREGADO EL DRAG & DROP ---
   const handleDragStart = (e: React.DragEvent, entry: TimeEntry) => { 
       e.dataTransfer.setData('text/plain', entry.id.toString()); 
+      setTimeout(() => setIsDragging(true), 0);
+  };
+
+  const handleDragEnd = () => {
+      setIsDragging(false);
   };
 
   const handleDrop = async (e: React.DragEvent, date: string, hour: number) => {
     e.preventDefault();
+    setIsDragging(false);
     const entryId = e.dataTransfer.getData('text/plain');
+    if (!entryId) return;
+
     setTimeEntries(prev => prev.map(entry => entry.id === entryId ? { ...entry, fecha_tarea: date, hora_inicio: `${String(hour).padStart(2, '0')}:00:00` } : entry));
     try {
       const { error } = await supabase.from('time_entries').update({ fecha_tarea: date, hora_inicio: `${String(hour).padStart(2, '0')}:00:00` }).eq('id', entryId);
@@ -247,6 +321,19 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
 
   return (
     <Fragment>
+      <style>{`
+        ::-webkit-scrollbar {
+          width: 0px !important;
+          height: 0px !important;
+          background: transparent !important;
+          display: none !important;
+        }
+        * {
+          -ms-overflow-style: none !important;
+          scrollbar-width: none !important;
+        }
+      `}</style>
+
       <div className="bg-black w-full animate-in fade-in duration-500 text-white p-4 font-mono">
         <header className="flex items-center justify-between mb-8 pb-4 border-b border-zinc-900">
             <h1 className="text-3xl font-black uppercase tracking-tighter italic text-white">Time Billing Semanal</h1>
@@ -297,7 +384,6 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
                     ))}
                   </div>
 
-                  {/* TAREAS RENDERIZADAS */}
                   <div className="absolute top-0 left-0 w-full h-full pointer-events-none">
                     {dayEntries.map(entry => {
                         const entryHour = parseInt(entry.hora_inicio.split(':')[0]);
@@ -311,7 +397,8 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
                           <div key={entry.id} 
                                draggable
                                onDragStart={(e) => handleDragStart(e, entry)}
-                               className="absolute p-2 bg-black/60 backdrop-blur-md border border-zinc-800 shadow-xl z-10 pointer-events-auto hover:bg-zinc-900 transition-colors overflow-hidden flex flex-col justify-start group cursor-move" 
+                               onDragEnd={handleDragEnd}
+                               className={`absolute p-2 bg-black/60 backdrop-blur-md border border-zinc-800 shadow-xl z-10 hover:bg-zinc-900 transition-colors overflow-hidden flex flex-col justify-start group cursor-move ${isDragging ? 'pointer-events-none' : 'pointer-events-auto'}`} 
                                style={{ 
                                    top: `${top}px`, 
                                    height: `${height}px`, 
@@ -341,22 +428,43 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
                 <h2 className="text-xl font-bold text-white mb-8 italic tracking-widest">{editingEntry ? 'EDITAR' : 'REGISTRAR'} TAREA</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
                     <InputField label="Fecha" type="date" value={selectedSlot?.date || ''} readOnly />
+                    
                     <div>
                         <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">Trabajador</label>
                         <div className="w-full py-2 px-0 bg-transparent border-b-2 border-zinc-800 text-white opacity-70">
                             {editingEntry ? `${editingEntry.profiles?.primer_nombre} ${editingEntry.profiles?.primer_apellido}` : `${currentUserProfile?.primer_nombre} ${currentUserProfile?.primer_apellido}`}
                         </div>
                     </div>
+                    
                     <SelectField label="Cliente" value={selectedClientId} onChange={(e: any) => setSelectedClientId(e.target.value)} options={clientProfiles} required />
                     <SelectField label="Caso" value={selectedCaseId} onChange={(e: any) => setSelectedCaseId(e.target.value)} options={filteredCases} disabled={!selectedClientId} required />
+                    
                     <div className="md:col-span-2">
                         <InputField label="Descripción Tarea" value={taskDescription} onChange={(e: any) => setTaskDescription(e.target.value)} required />
                     </div>
-                    <InputField label="Horas" type="number" step="0.25" min="0.25" value={hoursWorked} onChange={(e: any) => setHoursWorked(parseFloat(e.target.value) || 0)} required />
-                    <InputField label="Tarifa ($/hr)" type="number" step="1" min="0" value={rate} onChange={(e: any) => setRate(parseFloat(e.target.value) || 0)} />
+
+                    <NumberControl 
+                        label="Tiempo Invertido" 
+                        value={hoursWorked} 
+                        step={5 / 60} 
+                        min={5 / 60} 
+                        onChange={setHoursWorked} 
+                        isTime={true} 
+                    />
+                    
+                    <NumberControl 
+                        label="Tarifa a Cobrar" 
+                        value={rate} 
+                        step={0.25} 
+                        min={0} 
+                        onChange={setRate} 
+                        prefix="$"
+                        isMoney={true}
+                    />
                 </div>
             </div>
-            <div className="p-4 bg-zinc-900/50 flex justify-between items-center border-t border-zinc-800">
+            
+            <div className="p-4 bg-zinc-900/50 flex justify-between items-center border-t border-zinc-800 mt-4">
                 <div>
                     {editingEntry && (
                         <button type="button" onClick={handleDeleteEntry} className="text-zinc-600 hover:text-red-500 hover:bg-red-950/30 p-3 transition-colors rounded-full" title="Eliminar Registro">

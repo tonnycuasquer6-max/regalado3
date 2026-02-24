@@ -53,7 +53,6 @@ const AdminProfile: React.FC<AdminProfileProps> = ({ session, onCancel }) => {
         const endStr = endOfMonth.toISOString().split('T')[0];
 
         try {
-            // Traer las actividades con el ID del cliente para poder buscar su nombre
             const { data: times } = await supabase
                 .from('time_entries')
                 .select('*, caso:cases(titulo, cliente_id)')
@@ -63,7 +62,6 @@ const AdminProfile: React.FC<AdminProfileProps> = ({ session, onCancel }) => {
                 .order('fecha_tarea', { ascending: false });
             setTimeEntries(times || []);
 
-            // Traer a los clientes para armar el diccionario de nombres
             const { data: clientsData } = await supabase.from('profiles').select('id, primer_nombre, primer_apellido').eq('rol', 'cliente');
             const cDict: Record<string, any> = {};
             clientsData?.forEach(c => { cDict[c.id] = c; });
@@ -141,7 +139,7 @@ const AdminProfile: React.FC<AdminProfileProps> = ({ session, onCancel }) => {
     const monthName = currentMonth.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }).toUpperCase();
 
     return (
-        <div className="max-w-5xl mx-auto animate-in fade-in duration-500 font-mono text-white pb-12">
+        <div className="max-w-5xl mx-auto animate-in fade-in duration-500 font-mono text-white pb-12 relative">
             <header className="flex items-center justify-between mb-8 pb-4 border-b border-zinc-900">
                 <h1 className="text-3xl font-black uppercase tracking-tighter italic">Mi Perfil</h1>
                 <button onClick={onCancel} className="text-zinc-400 hover:text-white font-black py-2 px-6 transition-colors uppercase text-[10px] tracking-[0.3em]">Volver</button>
@@ -162,8 +160,7 @@ const AdminProfile: React.FC<AdminProfileProps> = ({ session, onCancel }) => {
                 </div>
             )}
 
-            {/* BOTONES AÑADIR GASTO Y VER REGISTROS (Uno al lado del otro) */}
-            <div className="flex justify-end gap-4 mb-4 animate-in fade-in slide-in-from-right-4 duration-500 delay-200">
+            <div className="flex justify-end gap-4 mb-6">
                 <button onClick={() => setIsExpenseModalOpen(true)} className="bg-white text-black font-bold py-2 px-6 text-[10px] tracking-widest uppercase hover:bg-zinc-300 transition-colors shadow-lg shadow-black/50">
                     + AÑADIR GASTO
                 </button>
@@ -172,8 +169,10 @@ const AdminProfile: React.FC<AdminProfileProps> = ({ session, onCancel }) => {
                 </button>
             </div>
 
-            <div className="bg-black border border-zinc-800 shadow-2xl shadow-black/50 p-8 relative overflow-hidden">
-                <div className="flex items-center justify-between border-b border-zinc-900 pb-6 mb-6">
+            <div className="bg-black border border-zinc-800 shadow-2xl shadow-black/50 p-8">
+                
+                {/* NAVEGADOR DE MESES NORMAL (Sube y baja con la pantalla, sin fijarse) */}
+                <div className="flex items-center justify-between border-b border-zinc-900 pb-6 mb-8">
                     <button onClick={handlePrevMonth} className="p-2 text-zinc-500 hover:text-white transition-colors bg-zinc-950 border border-zinc-900 rounded-full"><ChevronLeftIcon /></button>
                     <h3 className="text-xl font-bold tracking-widest text-zinc-300">{monthName}</h3>
                     <button onClick={handleNextMonth} className="p-2 text-zinc-500 hover:text-white transition-colors bg-zinc-950 border border-zinc-900 rounded-full"><ChevronRightIcon /></button>
@@ -204,7 +203,6 @@ const AdminProfile: React.FC<AdminProfileProps> = ({ session, onCancel }) => {
                             </div>
                         </div>
 
-                        {/* LISTA DESPLEGABLE DE REGISTROS DE TIME BILLING DETALLADOS */}
                         {showRecords && (
                             <div className="mb-8 animate-in fade-in slide-in-from-top-4 duration-500">
                                 <p className="text-[10px] font-black uppercase text-zinc-600 tracking-[0.3em] mb-4">REGISTRO DE ACTIVIDADES (TIME BILLING)</p>
