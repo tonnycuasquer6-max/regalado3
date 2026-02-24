@@ -196,17 +196,38 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
         });
     };
 
+    // SOLUCIÓN: Limpieza total de permisos y trabajadores al cerrar
     const handleCloseCase = async () => {
         if (!activeCaseHistory) return;
         setConfirmDialog({
             isOpen: true,
             title: '¿CERRAR CASO DEFINITIVAMENTE?',
-            message: 'El caso se marcará como cerrado y no admitirá nuevas tareas regulares.',
+            message: 'Se desasignará a todos los trabajadores, se revocarán sus permisos de acceso y el caso pasará a Solo Lectura.',
             onConfirm: async () => {
                 setActionLoading(true);
                 await supabase.from('cases').update({ estado: 'cerrado' }).eq('id', activeCaseHistory.id);
+                await supabase.from('asignaciones_casos').delete().eq('case_id', activeCaseHistory.id);
+                await supabase.from('peticiones_acceso').delete().eq('caso_id', activeCaseHistory.id);
+                
                 setActiveCaseHistory({ ...activeCaseHistory, estado: 'cerrado' });
                 setClientCases(prev => prev.map(c => c.id === activeCaseHistory.id ? { ...c, estado: 'cerrado' } : c));
+                setActionLoading(false);
+            }
+        });
+    };
+
+    // SOLUCIÓN: Botón para volver a abrir
+    const handleReopenCase = async () => {
+        if (!activeCaseHistory) return;
+        setConfirmDialog({
+            isOpen: true,
+            title: '¿REABRIR CASO?',
+            message: 'El caso volverá a estar activo. Tendrás que asignarlo manualmente a los trabajadores de nuevo.',
+            onConfirm: async () => {
+                setActionLoading(true);
+                await supabase.from('cases').update({ estado: 'abierto' }).eq('id', activeCaseHistory.id);
+                setActiveCaseHistory({ ...activeCaseHistory, estado: 'abierto' });
+                setClientCases(prev => prev.map(c => c.id === activeCaseHistory.id ? { ...c, estado: 'abierto' } : c));
                 setActionLoading(false);
             }
         });
@@ -223,7 +244,8 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
 
     const handleSelectClientForAssignment = async (client: Profile) => {
         setSelectedAssignClient(client);
-        const { data: cases } = await supabase.from('cases').select('*').eq('cliente_id', client.id);
+        // NO MOSTRAR CASOS CERRADOS AL MOMENTO DE ASIGNAR TRABAJADORES
+        const { data: cases } = await supabase.from('cases').select('*').eq('cliente_id', client.id).eq('estado', 'abierto');
         setAssignCasesList(cases || []);
         const { data: misAsignaciones } = await supabase.from('asignaciones_casos').select('case_id').eq('abogado_id', assignLawyer?.id);
         setSelectedCaseIds(misAsignaciones ? misAsignaciones.map(a => a.case_id) : []);
@@ -440,7 +462,9 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
                             
                             {viewCasesClient && clientCases.map(c => (
                                 <div key={c.id} onDoubleClick={() => handleOpenCaseHistory(c)} className="bg-zinc-900 border border-zinc-800 p-5 hover:border-zinc-500 cursor-pointer transition-colors relative">
-                                    <span className="absolute top-4 right-4 text-[10px] font-black uppercase bg-zinc-800 px-2 py-1 text-zinc-400">{c.estado}</span>
+                                    <span className={`absolute top-4 right-4 text-[10px] font-black uppercase px-2 py-1 ${c.estado === 'cerrado' ? 'bg-red-950/50 text-red-500 border border-red-900/50' : 'bg-zinc-800 text-zinc-400'}`}>
+                                        {c.estado}
+                                    </span>
                                     <h3 className="text-lg font-bold">{c.titulo}</h3>
                                     <p className="text-sm text-zinc-400 line-clamp-2 mt-2">{c.descripcion}</p>
                                 </div>
@@ -464,7 +488,10 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
                                             {cases.map(c => (
                                                 <div key={c.id} className="flex group/case items-center pr-6 hover:bg-zinc-900 transition-colors border-b border-zinc-900 last:border-0">
                                                     <div className="flex-grow p-4 pl-8 cursor-pointer" onDoubleClick={() => handleOpenCaseHistory(c)}>
-                                                        <h4 className="font-bold text-sm text-white">{c.titulo}</h4>
+                                                        <h4 className="font-bold text-sm text-white flex items-center gap-2">
+                                                            {c.titulo} 
+                                                            {c.estado === 'cerrado' && <span className="text-red-500 border border-red-900/50 bg-red-950/30 text-[8px] font-black py-0.5 px-2 uppercase tracking-widest">CERRADO</span>}
+                                                        </h4>
                                                         <p className="text-xs text-zinc-500 mt-1 line-clamp-1">{c.descripcion}</p>
                                                     </div>
                                                     <button type="button" onClick={(e) => handleUnassignCase(e, c.id, client.id)} className="p-2 text-zinc-600 hover:text-red-500 transition-colors opacity-0 group-hover/case:opacity-100 z-10 relative" title="Desasignar solo este caso">
@@ -482,18 +509,25 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
                     <Fragment>
                         {viewCasesClient && (
                             <div className="flex flex-col h-[85vh]">
-                                <div className="p-6 bg-zinc-950 border-b border-zinc-900">
+                                <div className="p-6 bg-zinc-950 border-b border-zinc-900 flex-shrink-0">
                                     <button onClick={() => {setActiveCaseHistory(null); setEditingUpdate(null);}} className="text-zinc-500 hover:text-white text-[10px] uppercase tracking-widest mb-2 flex items-center gap-2 transition-colors">
                                         ‹ Volver a la Lista
                                     </button>
                                     <div className="flex items-center gap-4 mt-2">
                                         <h2 className="text-lg font-bold italic tracking-widest uppercase text-white">HISTORIAL: {activeCaseHistory.titulo}</h2>
-                                        {activeCaseHistory.estado !== 'cerrado' && (
+                                        {/* SOLUCIÓN: BOTONES DE CERRAR / REABRIR SEGÚN EL ESTADO */}
+                                        {activeCaseHistory.estado !== 'cerrado' ? (
                                             <button onClick={handleCloseCase} className="bg-red-900/80 text-red-100 border border-red-900 hover:bg-red-800 text-[8px] font-black py-1 px-3 uppercase tracking-widest transition-colors shadow-lg">
                                                 Cerrar Caso
                                             </button>
+                                        ) : (
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-red-500 border border-red-900/50 bg-red-950/30 text-[8px] font-black py-1 px-3 uppercase tracking-widest">CERRADO</span>
+                                                <button onClick={handleReopenCase} className="bg-green-900/80 text-green-100 border border-green-900 hover:bg-green-800 text-[8px] font-black py-1 px-3 uppercase tracking-widest transition-colors shadow-lg">
+                                                    Reabrir Caso
+                                                </button>
+                                            </div>
                                         )}
-                                        {activeCaseHistory.estado === 'cerrado' && <span className="text-red-500 border border-red-900/50 bg-red-950/30 text-[8px] font-black py-1 px-3 uppercase tracking-widest">CERRADO</span>}
                                     </div>
                                 </div>
                                 <div className={`p-6 flex-grow bg-black space-y-8 ${scrollbarStyle}`}>
@@ -504,10 +538,13 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
                                                 <div className="absolute w-2 h-2 bg-zinc-700 rounded-full -left-[5px] top-1.5 ring-4 ring-black"></div>
                                                 <div className="flex justify-between items-start">
                                                     <p className="text-[10px] text-zinc-600 font-mono mb-1">{new Date(u.created_at).toLocaleString()}</p>
-                                                    <div className="flex gap-3 opacity-0 group-hover/item:opacity-100 transition-opacity">
-                                                        <button type="button" onClick={() => { setEditingUpdate(u); setUpdateDesc(u.descripcion); }} className="text-zinc-600 hover:text-white transition-colors" title="Editar"><PencilIcon /></button>
-                                                        <button type="button" onClick={(e) => { e.stopPropagation(); handleDeleteUpdate(u); }} className="text-zinc-600 hover:text-red-500 transition-colors" title="Eliminar"><TrashIcon /></button>
-                                                    </div>
+                                                    {/* SOLUCIÓN: SI ESTÁ CERRADO, NO HAY OPCIÓN DE EDITAR/BORRAR */}
+                                                    {activeCaseHistory.estado !== 'cerrado' && (
+                                                        <div className="flex gap-3 opacity-0 group-hover/item:opacity-100 transition-opacity">
+                                                            <button type="button" onClick={() => { setEditingUpdate(u); setUpdateDesc(u.descripcion); }} className="text-zinc-600 hover:text-white transition-colors" title="Editar"><PencilIcon /></button>
+                                                            <button type="button" onClick={(e) => { e.stopPropagation(); handleDeleteUpdate(u); }} className="text-zinc-600 hover:text-red-500 transition-colors" title="Eliminar"><TrashIcon /></button>
+                                                        </div>
+                                                    )}
                                                 </div>
                                                 <p className="text-sm text-zinc-300 mt-1">{u.descripcion}</p>
                                                 {u.file_url && (
@@ -519,29 +556,35 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
                                         ))
                                     }
                                 </div>
-                                <div className="p-4 bg-zinc-950 border-t border-zinc-900">
-                                    <form onSubmit={handleAddOrEditUpdate} className="flex flex-col gap-3">
-                                        {editingUpdate && <div className="text-[10px] text-yellow-500 uppercase font-black tracking-widest px-2">Modificando Registro... <button type="button" onClick={() => {setEditingUpdate(null); setUpdateDesc('');}} className="ml-4 text-zinc-500 hover:text-white">Cancelar</button></div>}
-                                        <div className="flex items-end gap-3">
-                                            <input type="file" ref={fileInputRef} className="hidden" onChange={(e) => setUploadFile(e.target.files![0])} />
-                                            <button type="button" onClick={() => fileInputRef.current?.click()} className={`p-3 border border-zinc-800 transition-colors ${uploadFile ? 'text-green-500' : 'text-zinc-500 hover:text-white'}`}><PaperClipIcon /></button>
-                                            <input type="text" placeholder="Registrar actualización directa..." className="flex-grow bg-transparent border-b border-zinc-800 py-2 text-white focus:outline-none transition-colors" value={updateDesc} onChange={(e) => setUpdateDesc(e.target.value)} />
-                                            <button disabled={uploadingUpdate} className="bg-white text-black font-black px-6 py-2 text-[10px] uppercase tracking-widest hover:bg-zinc-300 transition-colors disabled:opacity-50">
-                                                {uploadingUpdate ? '...' : (editingUpdate ? 'Guardar' : 'Enviar')}
-                                            </button>
-                                        </div>
-                                    </form>
-                                </div>
+                                {/* SOLUCIÓN: SI ESTÁ CERRADO, NO HAY FORMULARIO DE SUBIDA */}
+                                {activeCaseHistory.estado !== 'cerrado' && (
+                                    <div className="p-4 bg-zinc-950 border-t border-zinc-900 flex-shrink-0">
+                                        <form onSubmit={handleAddOrEditUpdate} className="flex flex-col gap-3">
+                                            {editingUpdate && <div className="text-[10px] text-yellow-500 uppercase font-black tracking-widest px-2">Modificando Registro... <button type="button" onClick={() => {setEditingUpdate(null); setUpdateDesc('');}} className="ml-4 text-zinc-500 hover:text-white">Cancelar</button></div>}
+                                            <div className="flex items-end gap-3">
+                                                <input type="file" ref={fileInputRef} className="hidden" onChange={(e) => setUploadFile(e.target.files![0])} />
+                                                <button type="button" onClick={() => fileInputRef.current?.click()} className={`p-3 border border-zinc-800 transition-colors ${uploadFile ? 'text-green-500' : 'text-zinc-500 hover:text-white'}`}><PaperClipIcon /></button>
+                                                <input type="text" placeholder="Registrar actualización directa..." className="flex-grow bg-transparent border-b border-zinc-800 py-2 text-white focus:outline-none transition-colors" value={updateDesc} onChange={(e) => setUpdateDesc(e.target.value)} />
+                                                <button disabled={uploadingUpdate} className="bg-white text-black font-black px-6 py-2 text-[10px] uppercase tracking-widest hover:bg-zinc-300 transition-colors disabled:opacity-50">
+                                                    {uploadingUpdate ? '...' : (editingUpdate ? 'Guardar' : 'Enviar')}
+                                                </button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                )}
                             </div>
                         )}
 
                         {viewAssignedProfile && (
                             <div className="flex flex-col h-[85vh]">
-                                <div className="p-6 bg-zinc-950 border-b border-zinc-900">
+                                <div className="p-6 bg-zinc-950 border-b border-zinc-900 flex-shrink-0">
                                     <button onClick={() => setActiveCaseHistory(null)} className="text-zinc-500 hover:text-white text-[10px] uppercase tracking-widest mb-2 flex items-center gap-2 transition-colors">
                                         ‹ Volver a la Lista
                                     </button>
-                                    <h2 className="text-lg font-bold italic tracking-widest uppercase text-white mt-2">PANEL DE REVISIÓN: {activeCaseHistory.titulo}</h2>
+                                    <h2 className="text-lg font-bold italic tracking-widest uppercase text-white mt-2 flex items-center gap-4">
+                                        PANEL DE REVISIÓN: {activeCaseHistory.titulo}
+                                        {activeCaseHistory.estado === 'cerrado' && <span className="text-red-500 border border-red-900/50 bg-red-950/30 text-[8px] font-black py-1 px-3 uppercase tracking-widest">CASO CERRADO</span>}
+                                    </h2>
                                 </div>
                                 
                                 <div className={`p-6 flex-grow bg-black space-y-8 ${scrollbarStyle}`}>
@@ -564,11 +607,14 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
                                                             {isApproved && <span className="bg-green-900/30 text-green-500 text-[8px] uppercase px-1 py-0.5 rounded font-bold">Aprobado</span>}
                                                         </div>
                                                         
-                                                        <div className="flex gap-4 opacity-0 group-hover/item:opacity-100 transition-opacity items-center">
-                                                            {!isApproved && !isRejected && <button type="button" onClick={(e) => { e.stopPropagation(); handleApproveUpdate(u.id); }} className="text-green-600 hover:text-green-400" title="Aprobar (Dar Visto)"><CheckIcon /></button>}
-                                                            {!isApproved && <button type="button" onClick={(e) => { e.stopPropagation(); setRejectDialog({ isOpen: true, updateId: u.id }); }} className="text-red-500 hover:text-red-400" title="Mandar a corregir (Rechazar)"><XMarkIcon /></button>}
-                                                            <button type="button" onClick={(e) => { e.stopPropagation(); handleDeleteUpdate(u); }} className="text-zinc-600 hover:text-red-500 transition-colors ml-2" title="Eliminar permanentemente"><TrashIcon /></button>
-                                                        </div>
+                                                        {/* SOLUCIÓN: SI ESTÁ CERRADO, NO HAY OPCIÓN DE APROBAR/RECHAZAR/BORRAR */}
+                                                        {activeCaseHistory.estado !== 'cerrado' && (
+                                                            <div className="flex gap-4 opacity-0 group-hover/item:opacity-100 transition-opacity items-center">
+                                                                {!isApproved && !isRejected && <button type="button" onClick={(e) => { e.stopPropagation(); handleApproveUpdate(u.id); }} className="text-green-600 hover:text-green-400" title="Aprobar (Dar Visto)"><CheckIcon /></button>}
+                                                                {!isApproved && <button type="button" onClick={(e) => { e.stopPropagation(); setRejectDialog({ isOpen: true, updateId: u.id }); }} className="text-red-500 hover:text-red-400" title="Mandar a corregir (Rechazar)"><XMarkIcon /></button>}
+                                                                <button type="button" onClick={(e) => { e.stopPropagation(); handleDeleteUpdate(u); }} className="text-zinc-600 hover:text-red-500 transition-colors ml-2" title="Eliminar permanentemente"><TrashIcon /></button>
+                                                            </div>
+                                                        )}
                                                     </div>
                                                     
                                                     <p className="text-sm text-zinc-300 mt-1">{u.descripcion}</p>
@@ -673,7 +719,7 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
                             <p className="text-zinc-500 text-xs mb-4 uppercase tracking-widest">2. Selecciona los casos para asignar</p>
                             
                             <div className={`space-y-2 pr-2 flex-grow mb-6 ${scrollbarStyle}`}>
-                                {assignCasesList.length === 0 && <p className="text-zinc-500 italic">Este cliente no tiene casos registrados.</p>}
+                                {assignCasesList.length === 0 && <p className="text-zinc-500 italic">Este cliente no tiene casos abiertos para asignar.</p>}
                                 {assignCasesList.map(c => {
                                     const isSelected = selectedCaseIds.includes(c.id);
                                     return (
@@ -713,7 +759,6 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
                 </form>
             </Modal>
 
-            {/* SOLUCIÓN ERROR 3: Añadido selector de color al editar perfil */}
             <Modal isOpen={!!profileToEdit} onClose={() => setProfileToEdit(null)}>
                 <form onSubmit={handleUpdateProfile} className="p-8">
                     <h2 className="text-xl font-bold mb-8 italic tracking-widest uppercase text-white">Editar Perfil</h2>

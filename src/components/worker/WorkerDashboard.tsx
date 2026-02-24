@@ -24,7 +24,7 @@ const Modal: React.FC<{ isOpen: boolean; onClose: () => void; children: React.Re
 };
 
 // ==========================================
-// VISTA 1: DIRECTORIO DE CLIENTES
+// VISTA 1: DIRECTORIO DE CLIENTES (SOLO LECTURA)
 // ==========================================
 const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
     const [clients, setClients] = useState<any[]>([]);
@@ -46,10 +46,6 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
 
     const [activeCaseHistory, setActiveCaseHistory] = useState<any | null>(null);
     const [caseUpdates, setCaseUpdates] = useState<any[]>([]);
-    const [updateDesc, setUpdateDesc] = useState('');
-    const [uploadFile, setUploadFile] = useState<File | null>(null);
-    const [editingUpdate, setEditingUpdate] = useState<any | null>(null); 
-    const fileInputRef = useRef<HTMLInputElement>(null);
 
     const fetchData = useCallback(async () => {
         setLoading(true);
@@ -138,29 +134,6 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
         setActiveCaseHistory(caso);
         const { data } = await supabase.from('case_updates').select('*').eq('case_id', caso.id).order('created_at', { ascending: false });
         setCaseUpdates(data || []);
-    };
-
-    const handleAddOrEditUpdate = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!activeCaseHistory || (!updateDesc.trim() && !uploadFile)) return;
-        setActionLoading(true);
-        let final_url = editingUpdate?.file_url || null;
-        let final_name = editingUpdate?.file_name || null;
-
-        if (uploadFile) {
-            if (editingUpdate?.file_url) { const oldPath = editingUpdate.file_url.split('case_files/')[1]; if (oldPath) await supabase.storage.from('case_files').remove([oldPath]); }
-            const filePath = `${activeCaseHistory.id}/${Date.now()}_${uploadFile.name}`;
-            const { error: uploadError } = await supabase.storage.from('case_files').upload(filePath, uploadFile);
-            if (!uploadError) { const { data } = supabase.storage.from('case_files').getPublicUrl(filePath); final_url = data.publicUrl; final_name = uploadFile.name; }
-        }
-
-        const payload = { case_id: activeCaseHistory.id, descripcion: updateDesc, file_url: final_url, file_name: final_name, estado_aprobacion: 'pendiente', perfil_id: session.user.id, observacion: null };
-        
-        if (editingUpdate) await supabase.from('case_updates').update(payload).eq('id', editingUpdate.id);
-        else await supabase.from('case_updates').insert([payload]);
-
-        setUpdateDesc(''); setUploadFile(null); setEditingUpdate(null); openCaseHistory(activeCaseHistory);
-        setActionLoading(false);
     };
 
     if (loading) return <div className="text-center p-12 text-zinc-500 animate-pulse">Cargando base de datos segura...</div>;
@@ -370,54 +343,43 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
                 </form>
             </Modal>
 
-            {/* MODAL HISTORIAL DEL CASO */}
-            <Modal isOpen={!!activeCaseHistory} onClose={() => { setActiveCaseHistory(null); setEditingUpdate(null); setUpdateDesc(''); }}>
+            {/* MODAL HISTORIAL DEL CASO (SOLUCIÓN: SOLO LECTURA, SIN FORMULARIO) */}
+            <Modal isOpen={!!activeCaseHistory} onClose={() => setActiveCaseHistory(null)}>
                 {activeCaseHistory && (
                     <div className="flex flex-col h-[85vh]">
-                        <div className="p-6 bg-zinc-950 border-b border-zinc-900">
-                            <button onClick={() => { setActiveCaseHistory(null); setEditingUpdate(null); setUpdateDesc(''); }} className="text-zinc-500 hover:text-white text-[10px] uppercase tracking-widest mb-2 flex items-center gap-2 transition-colors">
+                        <div className="p-6 bg-zinc-950 border-b border-zinc-900 flex-shrink-0">
+                            <button onClick={() => setActiveCaseHistory(null)} className="text-zinc-500 hover:text-white text-[10px] uppercase tracking-widest mb-2 flex items-center gap-2 transition-colors">
                                 ‹ Volver a la Lista
                             </button>
                             <h2 className="text-lg font-bold italic tracking-widest uppercase text-white">HISTORIAL: {activeCaseHistory.titulo}</h2>
                         </div>
                         <div className={`p-6 flex-grow bg-black space-y-8 ${scrollbarStyle}`}>
-                            {caseUpdates.map((u) => (
-                                <div key={u.id} className="relative pl-6 border-l border-zinc-800 group/item">
-                                    <div className={`absolute w-2 h-2 rounded-full -left-[5px] top-1.5 ring-4 ring-black ${u.estado_aprobacion === 'pendiente' ? 'bg-yellow-500' : u.estado_aprobacion === 'rechazado' ? 'bg-red-500' : 'bg-green-500'}`}></div>
-                                    
-                                    <div className="flex justify-between items-start">
-                                        <p className="text-[10px] text-zinc-600 font-mono mb-1">{new Date(u.created_at).toLocaleString()}</p>
-                                        {u.estado_aprobacion === 'rechazado' && (
-                                            <button type="button" onClick={() => { setEditingUpdate(u); setUpdateDesc(u.descripcion); }} className="text-zinc-600 hover:text-white transition-colors opacity-0 group-hover/item:opacity-100" title="Editar y reenviar"><PencilIcon /></button>
+                            {caseUpdates.filter(u => u.estado_aprobacion === 'aprobado').length === 0 ? (
+                                <div className="p-8 border border-dashed border-zinc-900 text-center text-zinc-600 text-xs tracking-widest uppercase">
+                                    No hay archivos aprobados para este caso.
+                                </div>
+                            ) : (
+                                caseUpdates.filter(u => u.estado_aprobacion === 'aprobado').map((u) => (
+                                    <div key={u.id} className="relative pl-6 border-l border-zinc-800">
+                                        <div className="absolute w-2 h-2 rounded-full -left-[5px] top-1.5 ring-4 ring-black bg-green-500"></div>
+                                        
+                                        <div className="flex justify-between items-start">
+                                            <p className="text-[10px] text-zinc-600 font-mono mb-1">{new Date(u.created_at).toLocaleString()}</p>
+                                        </div>
+                                        
+                                        <span className="bg-green-900/30 text-green-500 px-2 py-0.5 rounded text-[8px] uppercase tracking-widest font-black inline-block mb-2">Aprobado</span>
+                                        
+                                        <p className="text-sm text-zinc-300 mt-1">{u.descripcion}</p>
+                                        {u.file_url && (
+                                            <a href={u.file_url} target="_blank" rel="noreferrer" className="inline-flex items-center text-[10px] bg-zinc-900 border border-zinc-800 px-3 py-1.5 mt-3 text-blue-400 hover:bg-zinc-800 uppercase tracking-widest transition-colors">
+                                                <DocumentIcon /> {u.file_name}
+                                            </a>
                                         )}
                                     </div>
-                                    
-                                    {u.estado_aprobacion === 'pendiente' && <span className="bg-yellow-900/30 text-yellow-500 px-2 py-0.5 rounded text-[8px] uppercase tracking-widest font-black inline-block mb-2">Pendiente de Aprobación</span>}
-                                    {u.estado_aprobacion === 'rechazado' && <div className="text-red-400 text-[10px] tracking-widest font-mono mb-2 p-2 border border-red-900/50 bg-red-950/20">RECHAZADO: {u.observacion}</div>}
-                                    {u.estado_aprobacion === 'aprobado' && <span className="bg-green-900/30 text-green-500 px-2 py-0.5 rounded text-[8px] uppercase tracking-widest font-black inline-block mb-2">Aprobado</span>}
-                                    
-                                    <p className="text-sm text-zinc-300 mt-1">{u.descripcion}</p>
-                                    {u.file_url && (
-                                        <a href={u.file_url} target="_blank" rel="noreferrer" className="inline-flex items-center text-[10px] bg-zinc-900 border border-zinc-800 px-3 py-1.5 mt-3 text-blue-400 hover:bg-zinc-800 uppercase tracking-widest transition-colors">
-                                            <DocumentIcon /> {u.file_name}
-                                        </a>
-                                    )}
-                                </div>
-                            ))}
+                                ))
+                            )}
                         </div>
-                        <div className="p-4 bg-zinc-950 border-t border-zinc-900">
-                            <form onSubmit={handleAddOrEditUpdate} className="flex flex-col gap-3">
-                                {editingUpdate && <div className="text-[10px] text-yellow-500 uppercase font-black tracking-widest px-2">Corrigiendo Registro... <button type="button" onClick={() => {setEditingUpdate(null); setUpdateDesc('');}} className="ml-4 text-zinc-500 hover:text-white">Cancelar</button></div>}
-                                <div className="flex items-end gap-3">
-                                    <input type="file" ref={fileInputRef} className="hidden" onChange={(e) => setUploadFile(e.target.files![0])} />
-                                    <button type="button" onClick={() => fileInputRef.current?.click()} className={`p-3 border border-zinc-800 transition-colors ${uploadFile ? 'text-green-500' : 'text-zinc-500 hover:text-white'}`}><PaperClipIcon /></button>
-                                    <input type="text" placeholder="Añadir actualización al caso..." className="flex-grow bg-transparent border-b border-zinc-800 py-2 text-white focus:outline-none transition-colors" value={updateDesc} onChange={(e) => setUpdateDesc(e.target.value)} required />
-                                    <button disabled={actionLoading} className="bg-white text-black font-black px-6 py-2 text-[10px] uppercase tracking-widest hover:bg-zinc-300 transition-colors disabled:opacity-50">
-                                        {editingUpdate ? 'Reenviar' : 'Enviar'}
-                                    </button>
-                                </div>
-                            </form>
-                        </div>
+                        {/* Se eliminó por completo el formulario de "Añadir actualización al caso..." */}
                     </div>
                 )}
             </Modal>
@@ -426,7 +388,7 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
 };
 
 // ==========================================
-// VISTA 2: CASOS ASIGNADOS
+// VISTA 2: CASOS ASIGNADOS (AQUÍ SÍ SE TRABAJA Y SUBEN ARCHIVOS)
 // ==========================================
 const WorkerAssignedCasesView: React.FC<{ session: Session }> = ({ session }) => {
     const [assignedClientsDict, setAssignedClientsDict] = useState<{ [key: string]: { client: any, cases: any[] } }>({});
@@ -588,7 +550,6 @@ const WorkerAssignedCasesView: React.FC<{ session: Session }> = ({ session }) =>
 // ==========================================
 const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
     
-    // SOLUCIÓN 1: Leer la memoria del navegador para no perder la vista al recargar
     const [activeView, setActiveView] = useState(() => {
         const savedView = sessionStorage.getItem('workerActiveView');
         return savedView ? savedView : 'HOME';
@@ -598,19 +559,15 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [workerProfilePic, setWorkerProfilePic] = useState<string | null>(null);
 
-    // Guardar en la memoria cada vez que se cambia de pestaña
     useEffect(() => {
         sessionStorage.setItem('workerActiveView', activeView);
     }, [activeView]);
 
-    // SOLUCIÓN 2: Escáner Anti-Clonación de Sesiones y carga de foto de perfil
     useEffect(() => {
         const setupSecurityAndProfile = async () => {
-            // Cargar foto de perfil
             const { data: profile } = await supabase.from('profiles').select('foto_url').eq('id', session.user.id).single();
             if (profile && profile.foto_url) setWorkerProfilePic(profile.foto_url);
 
-            // Escáner Anti-Clonación
             const localToken = localStorage.getItem('deviceToken');
             if (localToken) {
                 const { data: sesion } = await supabase.from('sesion_unica').select('token_dispositivo').eq('user_id', session.user.id).single();
@@ -654,6 +611,11 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
 
     return (
         <div className="bg-black min-h-screen text-white flex flex-col font-mono relative">
+            {/* CSS GLOBAL PARA OCULTAR LA BARRA DE SCROLL */}
+            <style>{`
+                ::-webkit-scrollbar { width: 0px !important; height: 0px !important; background: transparent !important; display: none !important; }
+                * { -ms-overflow-style: none !important; scrollbar-width: none !important; }
+            `}</style>
             
             <header className="flex justify-between items-center p-6 bg-black sticky top-0 z-50">
                 <button onClick={() => setMobileMenuOpen(true)} className="md:hidden text-zinc-400 hover:text-white">
