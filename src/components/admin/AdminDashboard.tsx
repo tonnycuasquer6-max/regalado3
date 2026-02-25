@@ -79,10 +79,15 @@ const AdminChatView: React.FC<{ session: Session }> = ({ session }) => {
         if (!message.trim() || !selectedContact) return;
         const msgText = message.trim();
         setMessage('');
+        
+        // SOLUCIÓN: Agregada la alerta detallada con error.message
         const { error } = await supabase.from('chat_messages').insert([{
             sender_id: session.user.id, receiver_id: selectedContact.id, case_id: selectedCase ? selectedCase.id : null, message: msgText
         }]);
-        if (error) alert("Error al enviar mensaje");
+        
+        if (error) {
+            alert("Error de base de datos: " + error.message);
+        }
     };
 
     const handleContactClick = (contact: any) => {
@@ -127,7 +132,7 @@ const AdminChatView: React.FC<{ session: Session }> = ({ session }) => {
 
             <div className="flex-grow flex flex-col bg-[#050505] relative">
                 {!selectedContact ? (
-                    <div className="flex-grow flex items-center justify-center p-8 text-center"><p className="text-zinc-500 uppercase tracking-widest text-sm font-bold">Selecciona un contacto para iniciar</p></div>
+                    <div className="flex-grow flex items-center justify-center p-8 text-center"><p className="text-zinc-500 uppercase tracking-widest text-sm font-bold">Selecciona un contacto a la izquierda para iniciar</p></div>
                 ) : (
                     <>
                         <div className="p-4 border-b border-zinc-800 bg-zinc-950 flex items-center gap-4">
