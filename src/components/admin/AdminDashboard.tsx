@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from '../../services/supabaseClient';
 
@@ -30,52 +30,75 @@ const AdminChatView: React.FC<{ session: Session }> = ({ session }) => {
     const [chatStep, setChatStep] = useState<'status' | 'case' | 'chat'>('chat');
     const [selectedStatus, setSelectedStatus] = useState<'abierto' | 'cerrado' | null>(null);
     const [selectedCase, setSelectedCase] = useState<any>(null);
+    
     const [message, setMessage] = useState('');
+    const [messages, setMessages] = useState<any[]>([]);
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    const scrollToBottom = () => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); };
 
     useEffect(() => {
         const fetchChatData = async () => {
             const { data: profiles } = await supabase.from('profiles').select('*').neq('rol', 'admin');
             if (profiles) setUsers(profiles);
-
             const { data: casesData } = await supabase.from('cases').select('*');
             if (casesData) setAllCases(casesData);
         };
         fetchChatData();
     }, []);
 
+    const fetchMessages = useCallback(async () => {
+        if (!selectedContact) return;
+        let q = supabase.from('chat_messages')
+            .select('*')
+            .or(`and(sender_id.eq.${session.user.id},receiver_id.eq.${selectedContact.id}),and(sender_id.eq.${selectedContact.id},receiver_id.eq.${session.user.id})`)
+            .order('created_at', { ascending: true });
+
+        if (selectedCase) q = q.eq('case_id', selectedCase.id);
+        else q = q.is('case_id', null);
+
+        const { data } = await q;
+        if (data) { setMessages(data); scrollToBottom(); }
+    }, [selectedContact, selectedCase, session.user.id]);
+
+    useEffect(() => {
+        if (chatStep === 'chat') {
+            fetchMessages();
+            const channel = supabase.channel('chat_updates').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, payload => {
+                const newMsg = payload.new;
+                const isCurrentChat = (newMsg.sender_id === session.user.id && newMsg.receiver_id === selectedContact.id) || (newMsg.sender_id === selectedContact.id && newMsg.receiver_id === session.user.id);
+                const isCurrentCase = selectedCase ? newMsg.case_id === selectedCase.id : newMsg.case_id === null;
+                if (isCurrentChat && isCurrentCase) { setMessages(prev => [...prev, newMsg]); scrollToBottom(); }
+            }).subscribe();
+            return () => { supabase.removeChannel(channel); };
+        }
+    }, [chatStep, fetchMessages, selectedContact, selectedCase, session.user.id]);
+
+    const handleSendMessage = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!message.trim() || !selectedContact) return;
+        const msgText = message.trim();
+        setMessage('');
+        const { error } = await supabase.from('chat_messages').insert([{
+            sender_id: session.user.id, receiver_id: selectedContact.id, case_id: selectedCase ? selectedCase.id : null, message: msgText
+        }]);
+        if (error) alert("Error al enviar mensaje");
+    };
+
     const handleContactClick = (contact: any) => {
         setSelectedContact(contact);
-        if (contact.rol === 'cliente') {
-            setChatStep('status');
-            setSelectedStatus(null);
-            setSelectedCase(null);
-        } else {
-            setChatStep('chat');
-            setSelectedCase(null);
-        }
+        if (contact.rol === 'cliente') { setChatStep('status'); setSelectedStatus(null); setSelectedCase(null); }
+        else { setChatStep('chat'); setSelectedCase(null); }
     };
 
-    const handleStatusClick = (status: 'abierto' | 'cerrado') => {
-        setSelectedStatus(status);
-        setChatStep('case');
-    };
+    const handleStatusClick = (status: 'abierto' | 'cerrado') => { setSelectedStatus(status); setChatStep('case'); };
+    const handleCaseClick = (caso: any) => { setSelectedCase(caso); setChatStep('chat'); };
 
-    const handleCaseClick = (caso: any) => {
-        setSelectedCase(caso);
-        setChatStep('chat');
-    };
-
-    const filteredUsers = users.filter(u => {
-        if (activeTab === 'cliente') return u.rol === 'cliente';
-        return u.rol === 'trabajador' && u.categoria_usuario === activeTab;
-    });
-
+    const filteredUsers = users.filter(u => activeTab === 'cliente' ? u.rol === 'cliente' : u.rol === 'trabajador' && u.categoria_usuario === activeTab);
     const clientCases = allCases.filter(c => c.cliente_id === selectedContact?.id && c.estado === selectedStatus);
 
     return (
         <div className="animate-in fade-in duration-500 font-mono w-full max-w-6xl mx-auto h-[75vh] flex flex-col md:flex-row border border-zinc-800 bg-black">
-            
-            {/* SIDEBAR CONTACTOS */}
             <div className="w-full md:w-1/3 border-b md:border-b-0 md:border-r border-zinc-800 flex flex-col bg-zinc-950">
                 <div className="flex border-b border-zinc-800 flex-shrink-0">
                     <button onClick={() => setActiveTab('abogado')} className={`flex-1 py-4 text-[10px] font-black uppercase tracking-widest transition-colors ${activeTab === 'abogado' ? 'bg-zinc-900 text-white border-b-2 border-white' : 'text-zinc-500 hover:text-white hover:bg-zinc-900/50'}`}>Abogados</button>
@@ -94,9 +117,7 @@ const AdminChatView: React.FC<{ session: Session }> = ({ session }) => {
                                 </div>
                                 <div>
                                     <p className="text-xs font-bold text-white uppercase tracking-widest">{user.primer_nombre} {user.primer_apellido}</p>
-                                    <p className={`text-[9px] uppercase tracking-widest mt-1 ${activeTab === 'abogado' ? 'text-green-400' : activeTab === 'estudiante' ? 'text-blue-400' : 'text-zinc-400'}`}>
-                                        {activeTab === 'cliente' ? 'Cliente' : activeTab}
-                                    </p>
+                                    <p className={`text-[9px] uppercase tracking-widest mt-1 ${activeTab === 'abogado' ? 'text-green-400' : activeTab === 'estudiante' ? 'text-blue-400' : 'text-zinc-400'}`}>{activeTab === 'cliente' ? 'Cliente' : activeTab}</p>
                                 </div>
                             </button>
                         ))
@@ -104,12 +125,9 @@ const AdminChatView: React.FC<{ session: Session }> = ({ session }) => {
                 </div>
             </div>
 
-            {/* ÁREA DE CONTENIDO */}
             <div className="flex-grow flex flex-col bg-[#050505] relative">
                 {!selectedContact ? (
-                    <div className="flex-grow flex items-center justify-center p-8 text-center">
-                        <p className="text-zinc-500 uppercase tracking-widest text-sm font-bold">Selecciona un contacto a la izquierda para iniciar</p>
-                    </div>
+                    <div className="flex-grow flex items-center justify-center p-8 text-center"><p className="text-zinc-500 uppercase tracking-widest text-sm font-bold">Selecciona un contacto para iniciar</p></div>
                 ) : (
                     <>
                         <div className="p-4 border-b border-zinc-800 bg-zinc-950 flex items-center gap-4">
@@ -122,38 +140,28 @@ const AdminChatView: React.FC<{ session: Session }> = ({ session }) => {
                             </div>
                         </div>
 
-                        <div className={`flex-grow p-8 flex flex-col ${chatStep === 'chat' ? 'justify-end' : 'justify-center'} overflow-y-auto ${scrollbarStyle}`}>
-                            
-                            {/* PASO 1: SELECCIONAR ESTADO (SOLO CLIENTES) */}
+                        <div className={`flex-grow p-8 flex flex-col ${chatStep === 'chat' ? '' : 'justify-center'} overflow-y-auto ${scrollbarStyle}`}>
                             {chatStep === 'status' && selectedContact.rol === 'cliente' && (
                                 <div className="animate-in fade-in zoom-in duration-300 w-full max-w-md mx-auto text-center">
                                     <p className="text-zinc-400 mb-8 uppercase tracking-widest text-sm font-bold">Selecciona los casos de este cliente</p>
                                     <div className="flex flex-col gap-4">
-                                        <button onClick={() => handleStatusClick('abierto')} className="bg-zinc-900 border border-zinc-800 hover:border-zinc-500 text-white font-black uppercase tracking-widest py-6 px-4 transition-colors">
-                                            Casos Abiertos
-                                        </button>
-                                        <button onClick={() => handleStatusClick('cerrado')} className="bg-zinc-950 border border-zinc-900 hover:border-zinc-700 text-zinc-400 hover:text-white font-black uppercase tracking-widest py-6 px-4 transition-colors">
-                                            Casos Cerrados
-                                        </button>
+                                        <button onClick={() => handleStatusClick('abierto')} className="bg-zinc-900 border border-zinc-800 hover:border-zinc-500 text-white font-black uppercase tracking-widest py-6 px-4 transition-colors">Casos Abiertos</button>
+                                        <button onClick={() => handleStatusClick('cerrado')} className="bg-zinc-950 border border-zinc-900 hover:border-zinc-700 text-zinc-400 hover:text-white font-black uppercase tracking-widest py-6 px-4 transition-colors">Casos Cerrados</button>
                                     </div>
                                 </div>
                             )}
 
-                            {/* PASO 2: SELECCIONAR CASO (SOLO CLIENTES) */}
                             {chatStep === 'case' && selectedContact.rol === 'cliente' && (
                                 <div className="animate-in fade-in slide-in-from-right-4 duration-300 w-full max-w-lg mx-auto">
                                     <button onClick={() => setChatStep('status')} className="text-zinc-500 hover:text-white text-[10px] uppercase tracking-widest mb-6 flex items-center gap-2">‹ Volver</button>
                                     <p className="text-zinc-400 mb-6 uppercase tracking-widest text-sm font-bold">Casos {selectedStatus}s del cliente:</p>
-                                    
                                     {clientCases.length === 0 ? (
                                         <p className="text-center text-zinc-600 italic border border-dashed border-zinc-800 p-8">Este cliente no tiene casos {selectedStatus}s.</p>
                                     ) : (
                                         <div className="space-y-4">
                                             {clientCases.map(c => (
                                                 <button key={c.id} onClick={() => handleCaseClick(c)} className="w-full text-left bg-zinc-900 border border-zinc-800 hover:border-white p-4 transition-colors group">
-                                                    <h4 className="font-bold text-white uppercase tracking-widest flex justify-between items-center">
-                                                        {c.titulo} <span className="opacity-0 group-hover:opacity-100 transition-opacity">›</span>
-                                                    </h4>
+                                                    <h4 className="font-bold text-white uppercase tracking-widest flex justify-between items-center">{c.titulo} <span className="opacity-0 group-hover:opacity-100 transition-opacity">›</span></h4>
                                                     <p className="text-xs text-zinc-500 line-clamp-1 mt-2">{c.descripcion}</p>
                                                 </button>
                                             ))}
@@ -162,46 +170,41 @@ const AdminChatView: React.FC<{ session: Session }> = ({ session }) => {
                                 </div>
                             )}
 
-                            {/* PASO 3: CHAT ACTIVO */}
                             {chatStep === 'chat' && (
-                                <div className="animate-in fade-in duration-300 flex flex-col w-full h-full">
-                                    {selectedContact.rol === 'cliente' && selectedCase && (
-                                        <div className="text-center my-4">
-                                            <span className="bg-zinc-900 border border-zinc-800 text-zinc-400 text-[9px] uppercase tracking-widest px-4 py-2 rounded-full">
-                                                Conversación sobre caso: {selectedCase.titulo}
-                                            </span>
-                                        </div>
+                                <div className="animate-in fade-in duration-300 flex flex-col w-full min-h-full gap-4">
+                                    <div className="text-center my-4">
+                                        <span className="bg-zinc-900 border border-zinc-800 text-zinc-400 text-[9px] uppercase tracking-widest px-4 py-2 rounded-full">
+                                            {selectedContact.rol === 'cliente' && selectedCase ? `Chat sobre caso: ${selectedCase.titulo}` : 'Conversación Directa'}
+                                        </span>
+                                    </div>
+                                    
+                                    {messages.length === 0 ? (
+                                        <p className="text-zinc-600 text-xs italic text-center my-auto">Envía el primer mensaje para iniciar la conversación.</p>
+                                    ) : (
+                                        messages.map(msg => {
+                                            const isMe = msg.sender_id === session.user.id;
+                                            return (
+                                                <div key={msg.id} className={`flex flex-col gap-1 max-w-[80%] ${isMe ? 'self-end items-end' : 'self-start items-start'}`}>
+                                                    <div className={`p-3 rounded-2xl ${isMe ? 'bg-zinc-800 border border-zinc-700 rounded-tr-none text-white' : 'bg-zinc-900 border border-zinc-800 rounded-tl-none text-zinc-300'}`}>
+                                                        <p className="text-sm">{msg.message}</p>
+                                                    </div>
+                                                    <p className="text-[8px] text-zinc-500 font-mono">{new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
+                                                </div>
+                                            )
+                                        })
                                     )}
-                                    {selectedContact.rol !== 'cliente' && (
-                                        <div className="text-center my-4">
-                                            <span className="bg-zinc-900 border border-zinc-800 text-zinc-400 text-[9px] uppercase tracking-widest px-4 py-2 rounded-full">
-                                                Conversación Directa con Trabajador
-                                            </span>
-                                        </div>
-                                    )}
-                                    <div className="flex-grow"></div>
-                                    {/* Aquí irán los mensajes cuando se integre el backend real */}
-                                    <p className="text-zinc-600 text-xs italic text-center">Historial de chat vacío.</p>
+                                    <div ref={messagesEndRef} />
                                 </div>
                             )}
                         </div>
 
-                        {/* BARRA DE TEXTO (SOLO VISIBLE SI ESTÁ EN MODO CHAT) */}
                         {chatStep === 'chat' && (
-                            <div className="p-4 border-t border-zinc-800 bg-black animate-in slide-in-from-bottom-4 duration-300">
+                            <form onSubmit={handleSendMessage} className="p-4 border-t border-zinc-800 bg-black animate-in slide-in-from-bottom-4 duration-300">
                                 <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 p-2 rounded-full pr-4 focus-within:border-zinc-500 transition-colors">
-                                    <input 
-                                        type="text" 
-                                        value={message}
-                                        onChange={(e) => setMessage(e.target.value)}
-                                        placeholder="Escribe un mensaje..." 
-                                        className="flex-grow bg-transparent text-white text-sm focus:outline-none px-4 py-2"
-                                    />
-                                    <button className="text-white hover:text-blue-400 transition-colors p-2 bg-zinc-900 rounded-full">
-                                        <SendIcon />
-                                    </button>
+                                    <input type="text" value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Escribe un mensaje..." className="flex-grow bg-transparent text-white text-sm focus:outline-none px-4 py-2" />
+                                    <button type="submit" disabled={!message.trim()} className="text-white hover:text-blue-400 transition-colors p-2 bg-zinc-900 rounded-full disabled:opacity-50"><SendIcon /></button>
                                 </div>
-                            </div>
+                            </form>
                         )}
                     </>
                 )}
@@ -283,7 +286,7 @@ const AdminDashboard: React.FC<{ session: Session }> = ({ session }) => {
             case 'TIME_BILLING': return <TimeBillingMaestro onCancel={() => handleNavigate('HOME')} />;
             case 'REPORTS': return <ReportsView onCancel={() => handleNavigate('HOME')} />;
             case 'APPROVALS': return <ApprovalsView onCancel={() => handleNavigate('HOME')} />;
-            case 'CHAT': return <AdminChatView session={session} />; // NUEVA VISTA
+            case 'CHAT': return <AdminChatView session={session} />;
             case 'PROFILE': return <AdminProfile session={session} onCancel={() => handleNavigate('HOME')} />;
             case 'CREATE_USER': return <UserManagementView preselectedRole={selectedRoleForCreate} onCancel={() => handleNavigate('HOME')} />;
             case 'LIST_USERS': return selectedRoleForView ? <ListaPerfiles role={selectedRoleForView} onCancel={() => handleNavigate('HOME')} /> : null;
@@ -347,7 +350,6 @@ const AdminDashboard: React.FC<{ session: Session }> = ({ session }) => {
                     <button onClick={() => handleNavigate('TIME_BILLING')} className={`text-sm lg:text-base font-bold transition-colors ${activeView === 'TIME_BILLING' ? 'text-white' : 'text-zinc-400 hover:text-white'}`}>Time Billing</button>
                     <button onClick={() => handleNavigate('APPROVALS')} className={`text-sm lg:text-base font-bold transition-colors ${activeView === 'APPROVALS' ? 'text-white' : 'text-zinc-400 hover:text-white'}`}>Aprobaciones</button>
                     <button onClick={() => handleNavigate('REPORTS')} className={`text-sm lg:text-base font-bold transition-colors ${activeView === 'REPORTS' ? 'text-white' : 'text-zinc-400 hover:text-white'}`}>Reportes</button>
-                    {/* BOTÓN DE CHAT */}
                     <button onClick={() => handleNavigate('CHAT')} className={`text-sm lg:text-base font-bold transition-colors ${activeView === 'CHAT' ? 'text-white' : 'text-zinc-400 hover:text-white'}`}>Chat</button>
                 </nav>
 
@@ -433,7 +435,6 @@ const AdminDashboard: React.FC<{ session: Session }> = ({ session }) => {
                 </div>
             </header>
 
-            {/* MENÚ MÓVIL */}
             {mobileMenuOpen && (
                 <div className="fixed inset-0 bg-black/95 backdrop-blur-md z-[100] flex flex-col font-mono p-6">
                     <div className="flex justify-between items-center mb-12">

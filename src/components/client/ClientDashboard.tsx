@@ -1,4 +1,4 @@
-import React, { useState, useEffect, Fragment } from 'react';
+import React, { useState, useEffect, useCallback, useRef, Fragment } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from '../../services/supabaseClient';
 
@@ -107,7 +107,7 @@ const ClientCasesView: React.FC<{ session: Session }> = ({ session }) => {
 };
 
 // ==========================================
-// VISTA: MÉTODOS DE PAGO (SOLUCIÓN: Emojis restaurados)
+// VISTA: MÉTODOS DE PAGO
 // ==========================================
 const ClientPaymentsView: React.FC = () => {
     const banks = [
@@ -145,7 +145,7 @@ const ClientPaymentsView: React.FC = () => {
 };
 
 // ==========================================
-// VISTA: CHAT INTERNO
+// VISTA: CHAT INTERNO (CLIENTE)
 // ==========================================
 const ClientChatView: React.FC<{ session: Session }> = ({ session }) => {
     const [adminProfile, setAdminProfile] = useState<any>(null);
@@ -157,7 +157,14 @@ const ClientChatView: React.FC<{ session: Session }> = ({ session }) => {
     const [chatStep, setChatStep] = useState<'status' | 'case' | 'chat'>('status');
     const [selectedStatus, setSelectedStatus] = useState<'abierto' | 'cerrado' | null>(null);
     const [selectedCase, setSelectedCase] = useState<any>(null);
+    
     const [message, setMessage] = useState('');
+    const [messages, setMessages] = useState<any[]>([]);
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    const scrollToBottom = () => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    };
 
     useEffect(() => {
         const fetchChatData = async () => {
@@ -182,22 +189,47 @@ const ClientChatView: React.FC<{ session: Session }> = ({ session }) => {
         fetchChatData();
     }, [session.user.id]);
 
-    const handleContactClick = (contact: any) => {
-        setSelectedContact(contact);
-        setChatStep('status');
-        setSelectedStatus(null);
-        setSelectedCase(null);
+    const fetchMessages = useCallback(async () => {
+        if (!selectedContact) return;
+        let q = supabase.from('chat_messages')
+            .select('*')
+            .or(`and(sender_id.eq.${session.user.id},receiver_id.eq.${selectedContact.id}),and(sender_id.eq.${selectedContact.id},receiver_id.eq.${session.user.id})`)
+            .order('created_at', { ascending: true });
+
+        if (selectedCase) q = q.eq('case_id', selectedCase.id);
+        else q = q.is('case_id', null);
+
+        const { data } = await q;
+        if (data) { setMessages(data); scrollToBottom(); }
+    }, [selectedContact, selectedCase, session.user.id]);
+
+    useEffect(() => {
+        if (chatStep === 'chat') {
+            fetchMessages();
+            const channel = supabase.channel('chat_updates').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, payload => {
+                const newMsg = payload.new;
+                const isCurrentChat = (newMsg.sender_id === session.user.id && newMsg.receiver_id === selectedContact.id) || (newMsg.sender_id === selectedContact.id && newMsg.receiver_id === session.user.id);
+                const isCurrentCase = selectedCase ? newMsg.case_id === selectedCase.id : newMsg.case_id === null;
+                if (isCurrentChat && isCurrentCase) { setMessages(prev => [...prev, newMsg]); scrollToBottom(); }
+            }).subscribe();
+            return () => { supabase.removeChannel(channel); };
+        }
+    }, [chatStep, fetchMessages, selectedContact, selectedCase, session.user.id]);
+
+    const handleSendMessage = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!message.trim() || !selectedContact) return;
+        const msgText = message.trim();
+        setMessage('');
+        const { error } = await supabase.from('chat_messages').insert([{
+            sender_id: session.user.id, receiver_id: selectedContact.id, case_id: selectedCase ? selectedCase.id : null, message: msgText
+        }]);
+        if (error) alert("Error al enviar mensaje");
     };
 
-    const handleStatusClick = (status: 'abierto' | 'cerrado') => {
-        setSelectedStatus(status);
-        setChatStep('case');
-    };
-
-    const handleCaseClick = (caso: any) => {
-        setSelectedCase(caso);
-        setChatStep('chat');
-    };
+    const handleContactClick = (contact: any) => { setSelectedContact(contact); setChatStep('status'); setSelectedStatus(null); setSelectedCase(null); };
+    const handleStatusClick = (status: 'abierto' | 'cerrado') => { setSelectedStatus(status); setChatStep('case'); };
+    const handleCaseClick = (caso: any) => { setSelectedCase(caso); setChatStep('chat'); };
 
     const filteredCases = clientCases.filter(c => {
         if (c.estado !== selectedStatus) return false;
@@ -210,14 +242,9 @@ const ClientChatView: React.FC<{ session: Session }> = ({ session }) => {
 
     return (
         <div className="animate-in fade-in duration-500 font-mono w-full max-w-6xl mx-auto h-[75vh] flex flex-col md:flex-row border border-zinc-800 bg-black">
-            
-            {/* SIDEBAR CONTACTOS */}
             <div className="w-full md:w-1/3 border-b md:border-b-0 md:border-r border-zinc-800 flex flex-col bg-zinc-950">
-                <div className="p-4 border-b border-zinc-800">
-                    <h2 className="text-sm font-black uppercase tracking-widest text-zinc-400">Canales de Chat</h2>
-                </div>
+                <div className="p-4 border-b border-zinc-800"><h2 className="text-sm font-black uppercase tracking-widest text-zinc-400">Canales de Chat</h2></div>
                 <div className="flex-grow overflow-y-auto">
-                    {/* Admin */}
                     {adminProfile && (
                         <button onClick={() => handleContactClick(adminProfile)} className={`w-full text-left p-4 border-b border-zinc-800/50 flex items-center gap-4 transition-colors ${selectedContact?.id === adminProfile.id ? 'bg-zinc-900 border-l-2 border-l-white' : 'hover:bg-zinc-900 border-l-2 border-l-transparent'}`}>
                             <div className="w-12 h-12 rounded-full border border-zinc-700 overflow-hidden flex-shrink-0 bg-black">
@@ -229,7 +256,6 @@ const ClientChatView: React.FC<{ session: Session }> = ({ session }) => {
                             </div>
                         </button>
                     )}
-                    {/* Abogados Asignados */}
                     {lawyers.map(lw => (
                         <button key={lw.id} onClick={() => handleContactClick(lw)} className={`w-full text-left p-4 border-b border-zinc-800/50 flex items-center gap-4 transition-colors ${selectedContact?.id === lw.id ? 'bg-zinc-900 border-l-2 border-l-white' : 'hover:bg-zinc-900 border-l-2 border-l-transparent'}`}>
                             <div className="w-12 h-12 rounded-full border border-zinc-700 overflow-hidden flex-shrink-0 bg-black">
@@ -244,12 +270,9 @@ const ClientChatView: React.FC<{ session: Session }> = ({ session }) => {
                 </div>
             </div>
 
-            {/* ÁREA DE CONTENIDO */}
             <div className="flex-grow flex flex-col bg-[#050505] relative">
                 {!selectedContact ? (
-                    <div className="flex-grow flex items-center justify-center p-8 text-center">
-                        <p className="text-zinc-500 uppercase tracking-widest text-sm font-bold">Selecciona un contacto a la izquierda para iniciar</p>
-                    </div>
+                    <div className="flex-grow flex items-center justify-center p-8 text-center"><p className="text-zinc-500 uppercase tracking-widest text-sm font-bold">Selecciona un contacto para iniciar</p></div>
                 ) : (
                     <>
                         <div className="p-4 border-b border-zinc-800 bg-zinc-950 flex items-center gap-4">
@@ -262,18 +285,13 @@ const ClientChatView: React.FC<{ session: Session }> = ({ session }) => {
                             </div>
                         </div>
 
-                        <div className={`flex-grow p-8 flex flex-col ${chatStep === 'chat' ? 'justify-end' : 'justify-center'} overflow-y-auto ${scrollbarStyle}`}>
-                            
+                        <div className={`flex-grow p-8 flex flex-col ${chatStep === 'chat' ? '' : 'justify-center'} overflow-y-auto ${scrollbarStyle}`}>
                             {chatStep === 'status' && (
                                 <div className="animate-in fade-in zoom-in duration-300 w-full max-w-md mx-auto text-center">
                                     <p className="text-zinc-400 mb-8 uppercase tracking-widest text-sm font-bold">Selecciona el caso del cual quieres tener información</p>
                                     <div className="flex flex-col gap-4">
-                                        <button onClick={() => handleStatusClick('abierto')} className="bg-zinc-900 border border-zinc-800 hover:border-zinc-500 text-white font-black uppercase tracking-widest py-6 px-4 transition-colors">
-                                            Casos Abiertos
-                                        </button>
-                                        <button onClick={() => handleStatusClick('cerrado')} className="bg-zinc-950 border border-zinc-900 hover:border-zinc-700 text-zinc-400 hover:text-white font-black uppercase tracking-widest py-6 px-4 transition-colors">
-                                            Casos Cerrados
-                                        </button>
+                                        <button onClick={() => handleStatusClick('abierto')} className="bg-zinc-900 border border-zinc-800 hover:border-zinc-500 text-white font-black uppercase tracking-widest py-6 px-4 transition-colors">Casos Abiertos</button>
+                                        <button onClick={() => handleStatusClick('cerrado')} className="bg-zinc-950 border border-zinc-900 hover:border-zinc-700 text-zinc-400 hover:text-white font-black uppercase tracking-widest py-6 px-4 transition-colors">Casos Cerrados</button>
                                     </div>
                                 </div>
                             )}
@@ -282,16 +300,13 @@ const ClientChatView: React.FC<{ session: Session }> = ({ session }) => {
                                 <div className="animate-in fade-in slide-in-from-right-4 duration-300 w-full max-w-lg mx-auto">
                                     <button onClick={() => setChatStep('status')} className="text-zinc-500 hover:text-white text-[10px] uppercase tracking-widest mb-6 flex items-center gap-2">‹ Volver</button>
                                     <p className="text-zinc-400 mb-6 uppercase tracking-widest text-sm font-bold">Selecciona el caso específico:</p>
-                                    
                                     {filteredCases.length === 0 ? (
-                                        <p className="text-center text-zinc-600 italic border border-dashed border-zinc-800 p-8">No hay casos {selectedStatus}s vinculados a este contacto.</p>
+                                        <p className="text-center text-zinc-600 italic border border-dashed border-zinc-800 p-8">No hay casos {selectedStatus}s vinculados.</p>
                                     ) : (
                                         <div className="space-y-4">
                                             {filteredCases.map(c => (
                                                 <button key={c.id} onClick={() => handleCaseClick(c)} className="w-full text-left bg-zinc-900 border border-zinc-800 hover:border-white p-4 transition-colors group">
-                                                    <h4 className="font-bold text-white uppercase tracking-widest flex justify-between">
-                                                        {c.titulo} <span className="opacity-0 group-hover:opacity-100 transition-opacity">›</span>
-                                                    </h4>
+                                                    <h4 className="font-bold text-white uppercase tracking-widest flex justify-between">{c.titulo} <span className="opacity-0 group-hover:opacity-100 transition-opacity">›</span></h4>
                                                     <p className="text-xs text-zinc-500 line-clamp-1 mt-2">{c.descripcion}</p>
                                                 </button>
                                             ))}
@@ -301,38 +316,36 @@ const ClientChatView: React.FC<{ session: Session }> = ({ session }) => {
                             )}
 
                             {chatStep === 'chat' && (
-                                <div className="animate-in fade-in duration-300 flex flex-col w-full h-full">
-                                    <div className="text-center my-4">
-                                        <span className="bg-zinc-900 border border-zinc-800 text-zinc-400 text-[9px] uppercase tracking-widest px-4 py-2 rounded-full">
-                                            Consulta sobre caso: {selectedCase?.titulo}
-                                        </span>
-                                    </div>
-                                    <div className="flex-grow"></div>
-                                    <div className="self-start bg-zinc-900 border border-zinc-800 p-4 max-w-[80%] rounded-tr-2xl rounded-br-2xl rounded-bl-2xl">
-                                        <p className="text-xs text-zinc-300 leading-relaxed">
-                                            Hola, {selectedContact.rol === 'admin' ? 'bienvenido a administración. ¿En qué podemos ayudarte con este caso?' : 'soy el abogado a cargo de este proceso. ¿Qué duda tienes sobre los avances?'}
-                                        </p>
-                                        <p className="text-[8px] text-zinc-500 text-right mt-3 font-mono">10:00 AM</p>
-                                    </div>
+                                <div className="animate-in fade-in duration-300 flex flex-col w-full min-h-full gap-4">
+                                    <div className="text-center my-4"><span className="bg-zinc-900 border border-zinc-800 text-zinc-400 text-[9px] uppercase tracking-widest px-4 py-2 rounded-full">Chat sobre caso: {selectedCase?.titulo}</span></div>
+                                    
+                                    {messages.length === 0 ? (
+                                        <p className="text-zinc-600 text-xs italic text-center my-auto">Envía el primer mensaje para iniciar la conversación.</p>
+                                    ) : (
+                                        messages.map(msg => {
+                                            const isMe = msg.sender_id === session.user.id;
+                                            return (
+                                                <div key={msg.id} className={`flex flex-col gap-1 max-w-[80%] ${isMe ? 'self-end items-end' : 'self-start items-start'}`}>
+                                                    <div className={`p-3 rounded-2xl ${isMe ? 'bg-zinc-800 border border-zinc-700 rounded-tr-none text-white' : 'bg-zinc-900 border border-zinc-800 rounded-tl-none text-zinc-300'}`}>
+                                                        <p className="text-sm">{msg.message}</p>
+                                                    </div>
+                                                    <p className="text-[8px] text-zinc-500 font-mono">{new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
+                                                </div>
+                                            )
+                                        })
+                                    )}
+                                    <div ref={messagesEndRef} />
                                 </div>
                             )}
                         </div>
 
                         {chatStep === 'chat' && (
-                            <div className="p-4 border-t border-zinc-800 bg-black animate-in slide-in-from-bottom-4 duration-300">
+                            <form onSubmit={handleSendMessage} className="p-4 border-t border-zinc-800 bg-black animate-in slide-in-from-bottom-4 duration-300">
                                 <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 p-2 rounded-full pr-4 focus-within:border-zinc-500 transition-colors">
-                                    <input 
-                                        type="text" 
-                                        value={message}
-                                        onChange={(e) => setMessage(e.target.value)}
-                                        placeholder="Escribe un mensaje..." 
-                                        className="flex-grow bg-transparent text-white text-sm focus:outline-none px-4 py-2"
-                                    />
-                                    <button className="text-white hover:text-blue-400 transition-colors p-2 bg-zinc-900 rounded-full">
-                                        <SendIcon />
-                                    </button>
+                                    <input type="text" value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Escribe un mensaje..." className="flex-grow bg-transparent text-white text-sm focus:outline-none px-4 py-2" />
+                                    <button type="submit" disabled={!message.trim()} className="text-white hover:text-blue-400 transition-colors p-2 bg-zinc-900 rounded-full disabled:opacity-50"><SendIcon /></button>
                                 </div>
-                            </div>
+                            </form>
                         )}
                     </>
                 )}
@@ -342,7 +355,7 @@ const ClientChatView: React.FC<{ session: Session }> = ({ session }) => {
 };
 
 // ==========================================
-// VISTA: MI PERFIL FINANCIERO (CLIENTE - SOLUCIÓN: Desglose en línea)
+// VISTA: MI PERFIL FINANCIERO
 // ==========================================
 const ClientProfileView: React.FC<{ session: Session, profile: any }> = ({ session, profile }) => {
     const [cases, setCases] = useState<any[]>([]);
@@ -350,7 +363,7 @@ const ClientProfileView: React.FC<{ session: Session, profile: any }> = ({ sessi
     const [expenses, setExpenses] = useState<any[]>([]);
     const [currentCaseIndex, setCurrentCaseIndex] = useState(0);
     const [loading, setLoading] = useState(true);
-    const [showRecords, setShowRecords] = useState(false); // Cambiado a booleano para desglose en línea
+    const [showRecords, setShowRecords] = useState(false);
 
     useEffect(() => {
         const fetchData = async () => {
@@ -407,10 +420,12 @@ const ClientProfileView: React.FC<{ session: Session, profile: any }> = ({ sessi
             )}
 
             {cases.length === 0 ? (
-                <PlaceholderView title="Estado Financiero" />
+                <div className="p-8 border border-dashed border-zinc-800 text-center animate-in fade-in duration-500 text-white font-mono h-full flex flex-col items-center justify-center">
+                    <h2 className="text-3xl font-black uppercase tracking-widest mb-4">Estado Financiero</h2>
+                    <p className="text-zinc-500 text-sm tracking-widest uppercase">Próximamente disponible</p>
+                </div>
             ) : (
                 <div className="bg-black border border-zinc-800 shadow-2xl shadow-black/50 p-8">
-                    
                     <div className="flex items-center justify-between border-b border-zinc-900 pb-6 mb-8">
                         {cases.length > 1 ? (
                             <button onClick={handlePrevCase} className="p-2 text-zinc-500 hover:text-white transition-colors bg-zinc-950 border border-zinc-900 rounded-full"><ChevronLeftIcon /></button>
@@ -455,7 +470,6 @@ const ClientProfileView: React.FC<{ session: Session, profile: any }> = ({ sessi
                         </button>
                     </div>
 
-                    {/* SOLUCIÓN: Desglose en línea (Tipo Factura) */}
                     {showRecords && (
                         <div className="mt-8 animate-in fade-in slide-in-from-top-4 duration-500 border-t border-zinc-900 pt-8">
                             <p className="text-[10px] font-black uppercase text-zinc-600 tracking-[0.3em] mb-4">REGISTRO DE ACTIVIDADES</p>
@@ -521,7 +535,6 @@ const ClientDashboard: React.FC<{ session: Session }> = ({ session }) => {
             const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
             if (profile) {
                 setClientProfile(profile);
-
                 if (profile.cambiar_pass_obligatorio === true) {
                     setShowPasswordModal(true);
                 }
@@ -608,7 +621,6 @@ const ClientDashboard: React.FC<{ session: Session }> = ({ session }) => {
 
                     <div className="flex items-center justify-end gap-6 w-32 relative z-50">
                         
-                        {/* CAMPANITA */}
                         <div className="relative">
                             <button onClick={() => { closeAllMenus(); setNotificationsOpen(!notificationsOpen); }} className={`text-zinc-500 hover:text-white transition-colors relative ${notificationsOpen ? 'text-white' : ''}`}>
                                 <BellIcon />
@@ -642,7 +654,6 @@ const ClientDashboard: React.FC<{ session: Session }> = ({ session }) => {
                             )}
                         </div>
                         
-                        {/* PERFIL */}
                         <div className="relative">
                             <button onClick={() => { closeAllMenus(); setProfileMenuOpen(!profileMenuOpen); }} className={`w-10 h-10 rounded-full border-2 flex items-center justify-center transition-all overflow-hidden bg-zinc-900 ${profileMenuOpen ? 'border-white' : 'border-zinc-700 hover:border-white'}`}>
                                 {clientProfile?.foto_url ? <img src={clientProfile.foto_url} alt="Perfil" className="w-full h-full object-cover" /> : <UserIcon className="w-6 h-6 text-zinc-400 pointer-events-none" />}
@@ -673,7 +684,6 @@ const ClientDashboard: React.FC<{ session: Session }> = ({ session }) => {
                     </div>
                 </header>
 
-                {/* MENÚ MÓVIL */}
                 {mobileMenuOpen && (
                     <div className="fixed inset-0 bg-black/95 backdrop-blur-md z-[100] flex flex-col font-sans p-6">
                         <div className="flex justify-between items-center mb-12">
@@ -690,7 +700,6 @@ const ClientDashboard: React.FC<{ session: Session }> = ({ session }) => {
                     </div>
                 )}
 
-                {/* CONTENIDO PRINCIPAL */}
                 <main className="flex-grow flex flex-col relative z-10">
                     {activeView === 'HOME' ? (
                         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -707,7 +716,6 @@ const ClientDashboard: React.FC<{ session: Session }> = ({ session }) => {
                     )}
                 </main>
 
-                {/* MODAL DE CAMBIO DE CONTRASEÑA FORZADO */}
                 <Modal isOpen={showPasswordModal} preventClose={true}>
                     <form onSubmit={handleUpdatePassword} className="bg-black w-full max-w-md mx-auto p-10 font-serif border border-zinc-800 shadow-2xl shadow-black">
                         <LockClosedIcon />

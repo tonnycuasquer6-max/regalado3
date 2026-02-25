@@ -549,7 +549,7 @@ const WorkerAssignedCasesView: React.FC<{ session: Session }> = ({ session }) =>
 };
 
 // ==========================================
-// VISTA: CHAT INTERNO (TRABAJADOR)
+// VISTA: CHAT INTERNO (TRABAJADOR - SOLUCIÓN CHAT REAL)
 // ==========================================
 const WorkerChatView: React.FC<{ session: Session }> = ({ session }) => {
     const [adminProfile, setAdminProfile] = useState<any>(null);
@@ -559,22 +559,24 @@ const WorkerChatView: React.FC<{ session: Session }> = ({ session }) => {
     const [selectedContact, setSelectedContact] = useState<any>(null);
     const [chatStep, setChatStep] = useState<'case' | 'chat'>('case');
     const [selectedCase, setSelectedCase] = useState<any>(null);
+    
     const [message, setMessage] = useState('');
+    const [messages, setMessages] = useState<any[]>([]);
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    const scrollToBottom = () => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); };
 
     useEffect(() => {
         const fetchChatData = async () => {
-            // 1. Obtener Admin
             const { data: admin } = await supabase.from('profiles').select('*').eq('rol', 'admin').limit(1).single();
             if (admin) setAdminProfile(admin);
 
-            // 2. Obtener Casos Asignados a este trabajador
             const { data: asignaciones } = await supabase.from('asignaciones_casos').select('case_id').eq('abogado_id', session.user.id);
             if (asignaciones && asignaciones.length > 0) {
                 const caseIds = asignaciones.map(a => a.case_id);
                 const { data: casesData } = await supabase.from('cases').select('*').in('id', caseIds);
                 if (casesData) {
                     setAssignedCases(casesData);
-                    // 3. Extraer solo los Clientes de esos casos asignados
                     const clientIds = [...new Set(casesData.map(c => c.cliente_id))];
                     const { data: clientsData } = await supabase.from('profiles').select('*').in('id', clientIds);
                     if (clientsData) setAssignedClients(clientsData);
@@ -584,35 +586,58 @@ const WorkerChatView: React.FC<{ session: Session }> = ({ session }) => {
         fetchChatData();
     }, [session.user.id]);
 
+    const fetchMessages = useCallback(async () => {
+        if (!selectedContact) return;
+        let q = supabase.from('chat_messages')
+            .select('*')
+            .or(`and(sender_id.eq.${session.user.id},receiver_id.eq.${selectedContact.id}),and(sender_id.eq.${selectedContact.id},receiver_id.eq.${session.user.id})`)
+            .order('created_at', { ascending: true });
+
+        if (selectedCase) q = q.eq('case_id', selectedCase.id);
+        else q = q.is('case_id', null);
+
+        const { data } = await q;
+        if (data) { setMessages(data); scrollToBottom(); }
+    }, [selectedContact, selectedCase, session.user.id]);
+
+    useEffect(() => {
+        if (chatStep === 'chat') {
+            fetchMessages();
+            const channel = supabase.channel('chat_updates').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, payload => {
+                const newMsg = payload.new;
+                const isCurrentChat = (newMsg.sender_id === session.user.id && newMsg.receiver_id === selectedContact.id) || (newMsg.sender_id === selectedContact.id && newMsg.receiver_id === session.user.id);
+                const isCurrentCase = selectedCase ? newMsg.case_id === selectedCase.id : newMsg.case_id === null;
+                if (isCurrentChat && isCurrentCase) { setMessages(prev => [...prev, newMsg]); scrollToBottom(); }
+            }).subscribe();
+            return () => { supabase.removeChannel(channel); };
+        }
+    }, [chatStep, fetchMessages, selectedContact, selectedCase, session.user.id]);
+
+    const handleSendMessage = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!message.trim() || !selectedContact) return;
+        const msgText = message.trim();
+        setMessage('');
+        const { error } = await supabase.from('chat_messages').insert([{
+            sender_id: session.user.id, receiver_id: selectedContact.id, case_id: selectedCase ? selectedCase.id : null, message: msgText
+        }]);
+        if (error) alert("Error al enviar mensaje");
+    };
+
     const handleContactClick = (contact: any) => {
         setSelectedContact(contact);
-        if (contact.rol === 'admin') {
-            setChatStep('chat'); // Admin no necesita seleccionar caso
-            setSelectedCase(null);
-        } else {
-            setChatStep('case'); // Cliente requiere seleccionar caso asignado
-            setSelectedCase(null);
-        }
+        if (contact.rol === 'admin') { setChatStep('chat'); setSelectedCase(null); }
+        else { setChatStep('case'); setSelectedCase(null); }
     };
+    const handleCaseClick = (caso: any) => { setSelectedCase(caso); setChatStep('chat'); };
 
-    const handleCaseClick = (caso: any) => {
-        setSelectedCase(caso);
-        setChatStep('chat');
-    };
-
-    // Filtrar casos asignados específicos para el cliente seleccionado
     const filteredClientCases = assignedCases.filter(c => c.cliente_id === selectedContact?.id);
 
     return (
         <div className="animate-in fade-in duration-500 font-mono w-full max-w-6xl mx-auto h-[75vh] flex flex-col md:flex-row border border-zinc-800 bg-black">
-            
-            {/* SIDEBAR CONTACTOS */}
             <div className="w-full md:w-1/3 border-b md:border-b-0 md:border-r border-zinc-800 flex flex-col bg-zinc-950">
-                <div className="p-4 border-b border-zinc-800">
-                    <h2 className="text-sm font-black uppercase tracking-widest text-zinc-400">Mensajes</h2>
-                </div>
+                <div className="p-4 border-b border-zinc-800"><h2 className="text-sm font-black uppercase tracking-widest text-zinc-400">Mensajes</h2></div>
                 <div className="flex-grow overflow-y-auto">
-                    {/* Admin Siempre Fijo */}
                     {adminProfile && (
                         <button onClick={() => handleContactClick(adminProfile)} className={`w-full text-left p-4 border-b border-zinc-800/50 flex items-center gap-4 transition-colors ${selectedContact?.id === adminProfile.id ? 'bg-zinc-900 border-l-2 border-l-white' : 'hover:bg-zinc-900 border-l-2 border-l-transparent'}`}>
                             <div className="w-12 h-12 rounded-full border border-zinc-700 overflow-hidden flex-shrink-0 bg-black">
@@ -625,11 +650,8 @@ const WorkerChatView: React.FC<{ session: Session }> = ({ session }) => {
                         </button>
                     )}
                     
-                    <div className="p-4 border-b border-zinc-800 bg-zinc-950">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-zinc-600">Clientes Asignados</p>
-                    </div>
+                    <div className="p-4 border-b border-zinc-800 bg-zinc-950"><p className="text-[10px] font-black uppercase tracking-widest text-zinc-600">Clientes Asignados</p></div>
 
-                    {/* Clientes Asignados */}
                     {assignedClients.length === 0 ? (
                         <p className="p-4 text-xs text-zinc-600 italic">No tienes clientes asignados.</p>
                     ) : (
@@ -648,12 +670,9 @@ const WorkerChatView: React.FC<{ session: Session }> = ({ session }) => {
                 </div>
             </div>
 
-            {/* ÁREA DE CONTENIDO */}
             <div className="flex-grow flex flex-col bg-[#050505] relative">
                 {!selectedContact ? (
-                    <div className="flex-grow flex items-center justify-center p-8 text-center">
-                        <p className="text-zinc-500 uppercase tracking-widest text-sm font-bold">Selecciona un contacto a la izquierda para iniciar</p>
-                    </div>
+                    <div className="flex-grow flex items-center justify-center p-8 text-center"><p className="text-zinc-500 uppercase tracking-widest text-sm font-bold">Selecciona un contacto para iniciar</p></div>
                 ) : (
                     <>
                         <div className="p-4 border-b border-zinc-800 bg-zinc-950 flex items-center gap-4">
@@ -666,23 +685,17 @@ const WorkerChatView: React.FC<{ session: Session }> = ({ session }) => {
                             </div>
                         </div>
 
-                        <div className={`flex-grow p-8 flex flex-col ${chatStep === 'chat' ? 'justify-end' : 'justify-center'} overflow-y-auto ${scrollbarStyle}`}>
-                            
-                            {/* PASO: SELECCIONAR CASO (SOLO PARA CLIENTES) */}
+                        <div className={`flex-grow p-8 flex flex-col ${chatStep === 'chat' ? '' : 'justify-center'} overflow-y-auto ${scrollbarStyle}`}>
                             {chatStep === 'case' && selectedContact.rol !== 'admin' && (
                                 <div className="animate-in fade-in slide-in-from-right-4 duration-300 w-full max-w-lg mx-auto">
                                     <p className="text-zinc-400 mb-6 uppercase tracking-widest text-sm font-bold">Selecciona el caso vinculado para chatear:</p>
-                                    
                                     {filteredClientCases.length === 0 ? (
                                         <p className="text-center text-zinc-600 italic border border-dashed border-zinc-800 p-8">Este cliente no tiene casos activos asignados a ti.</p>
                                     ) : (
                                         <div className="space-y-4">
                                             {filteredClientCases.map(c => (
                                                 <button key={c.id} onClick={() => handleCaseClick(c)} className="w-full text-left bg-zinc-900 border border-zinc-800 hover:border-white p-4 transition-colors group">
-                                                    <h4 className="font-bold text-white uppercase tracking-widest flex justify-between items-center">
-                                                        {c.titulo} 
-                                                        {c.estado === 'cerrado' && <span className="text-[8px] text-red-500 bg-red-950/50 px-2 py-1 ml-2">CERRADO</span>}
-                                                    </h4>
+                                                    <h4 className="font-bold text-white uppercase tracking-widest flex justify-between items-center">{c.titulo} {c.estado === 'cerrado' && <span className="text-[8px] text-red-500 bg-red-950/50 px-2 py-1 ml-2">CERRADO</span>}</h4>
                                                     <p className="text-xs text-zinc-500 line-clamp-1 mt-2">{c.descripcion}</p>
                                                 </button>
                                             ))}
@@ -691,39 +704,41 @@ const WorkerChatView: React.FC<{ session: Session }> = ({ session }) => {
                                 </div>
                             )}
 
-                            {/* PASO: CHAT ACTIVO */}
                             {chatStep === 'chat' && (
-                                <div className="animate-in fade-in duration-300 flex flex-col w-full h-full">
-                                    {selectedCase && (
-                                        <div className="text-center my-4">
-                                            <span className="bg-zinc-900 border border-zinc-800 text-zinc-400 text-[9px] uppercase tracking-widest px-4 py-2 rounded-full">
-                                                Conversación vinculada al caso: {selectedCase.titulo}
-                                            </span>
-                                        </div>
+                                <div className="animate-in fade-in duration-300 flex flex-col w-full min-h-full gap-4">
+                                    <div className="text-center my-4">
+                                        <span className="bg-zinc-900 border border-zinc-800 text-zinc-400 text-[9px] uppercase tracking-widest px-4 py-2 rounded-full">
+                                            {selectedContact.rol === 'cliente' ? `Chat sobre caso: ${selectedCase?.titulo}` : 'Conversación Directa'}
+                                        </span>
+                                    </div>
+                                    
+                                    {messages.length === 0 ? (
+                                        <p className="text-zinc-600 text-xs italic text-center my-auto">Envía el primer mensaje para iniciar la conversación.</p>
+                                    ) : (
+                                        messages.map(msg => {
+                                            const isMe = msg.sender_id === session.user.id;
+                                            return (
+                                                <div key={msg.id} className={`flex flex-col gap-1 max-w-[80%] ${isMe ? 'self-end items-end' : 'self-start items-start'}`}>
+                                                    <div className={`p-3 rounded-2xl ${isMe ? 'bg-zinc-800 border border-zinc-700 rounded-tr-none text-white' : 'bg-zinc-900 border border-zinc-800 rounded-tl-none text-zinc-300'}`}>
+                                                        <p className="text-sm">{msg.message}</p>
+                                                    </div>
+                                                    <p className="text-[8px] text-zinc-500 font-mono">{new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
+                                                </div>
+                                            )
+                                        })
                                     )}
-                                    <div className="flex-grow"></div>
-                                    {/* Aquí irían los mensajes cargados de la BD */}
-                                    <p className="text-zinc-600 text-xs italic text-center">No hay mensajes anteriores.</p>
+                                    <div ref={messagesEndRef} />
                                 </div>
                             )}
                         </div>
 
-                        {/* BARRA DE TEXTO (SOLO VISIBLE SI ESTÁ EN MODO CHAT) */}
                         {chatStep === 'chat' && (
-                            <div className="p-4 border-t border-zinc-800 bg-black animate-in slide-in-from-bottom-4 duration-300">
+                            <form onSubmit={handleSendMessage} className="p-4 border-t border-zinc-800 bg-black animate-in slide-in-from-bottom-4 duration-300">
                                 <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 p-2 rounded-full pr-4 focus-within:border-zinc-500 transition-colors">
-                                    <input 
-                                        type="text" 
-                                        value={message}
-                                        onChange={(e) => setMessage(e.target.value)}
-                                        placeholder="Escribe un mensaje..." 
-                                        className="flex-grow bg-transparent text-white text-sm focus:outline-none px-4 py-2"
-                                    />
-                                    <button className="text-white hover:text-blue-400 transition-colors p-2 bg-zinc-900 rounded-full">
-                                        <SendIcon />
-                                    </button>
+                                    <input type="text" value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Escribe un mensaje..." className="flex-grow bg-transparent text-white text-sm focus:outline-none px-4 py-2" />
+                                    <button type="submit" disabled={!message.trim()} className="text-white hover:text-blue-400 transition-colors p-2 bg-zinc-900 rounded-full disabled:opacity-50"><SendIcon /></button>
                                 </div>
-                            </div>
+                            </form>
                         )}
                     </>
                 )}
@@ -814,7 +829,7 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
             case 'ASSIGNED_CASES': return <WorkerAssignedCasesView session={session} />;
             case 'TIME_BILLING': return <TimeBillingMaestro onCancel={() => handleMenuClick('HOME')} />;
             case 'EXPENSES': return <ExpensesView />;
-            case 'CHAT': return <WorkerChatView session={session} />; // NUEVA VISTA
+            case 'CHAT': return <WorkerChatView session={session} />;
             case 'PROFILE': return <WorkerProfile session={session} onCancel={() => handleMenuClick('HOME')} />;
             default: return null;
         }
@@ -843,7 +858,7 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
                         { id: 'ASSIGNED_CASES', label: 'Casos' },
                         { id: 'TIME_BILLING', label: 'Billing' },
                         { id: 'EXPENSES', label: 'Gastos' },
-                        { id: 'CHAT', label: 'Chat' } // AGREGADO AL MENÚ
+                        { id: 'CHAT', label: 'Chat' }
                     ].map(item => (
                         <button
                             key={item.id}
@@ -936,7 +951,6 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
                 </div>
             </header>
 
-            {/* MENÚ MÓVIL */}
             {mobileMenuOpen && (
                 <div className="fixed inset-0 bg-black/95 backdrop-blur-sm z-[100] flex flex-col font-mono p-6">
                     <div className="flex justify-between items-center mb-12">
@@ -950,7 +964,7 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
                             { id: 'ASSIGNED_CASES', label: 'Casos Asignados' },
                             { id: 'TIME_BILLING', label: 'Time Billing' },
                             { id: 'EXPENSES', label: 'Gastos' },
-                            { id: 'CHAT', label: 'Chat' } // AGREGADO
+                            { id: 'CHAT', label: 'Chat' }
                         ].map(item => (
                             <button key={item.id} onClick={() => handleMenuClick(item.id)} className={`text-2xl font-black uppercase tracking-[0.2em] text-left ${activeView === item.id ? 'text-white' : 'text-zinc-600'}`}>
                                 {item.label}
