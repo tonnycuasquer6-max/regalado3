@@ -87,13 +87,22 @@ const WorkerClientsView: React.FC<{ session: Session, userRole: string }> = ({ s
         setActionLoading(true);
 
         let final_photo_url = null;
+        
+        // SOLUCIÓN: Usar el bucket archivos_perfil y la estructura de nombre que ya tienes
         if (imageFile) {
-            const filePath = `profile_pics/${Date.now()}_${imageFile.name}`;
-            const { error: uploadError } = await supabase.storage.from('profiles').upload(filePath, imageFile);
-            if (!uploadError) {
-                const { data } = supabase.storage.from('profiles').getPublicUrl(filePath);
-                final_photo_url = data.publicUrl;
+            const cleanFileName = imageFile.name.replace(/[^a-zA-Z0-9.\-_]/g, '');
+            const filePath = `profile_${Date.now()}_${cleanFileName}`;
+            
+            const { error: uploadError } = await supabase.storage.from('archivos_perfil').upload(filePath, imageFile);
+            
+            if (uploadError) {
+                alert(`Error al subir la fotografía: ${uploadError.message}`);
+                setActionLoading(false);
+                return;
             }
+            
+            const { data } = supabase.storage.from('archivos_perfil').getPublicUrl(filePath);
+            final_photo_url = data.publicUrl;
         }
 
         const { error } = await supabase.from('peticiones_acceso').insert({
@@ -111,7 +120,7 @@ const WorkerClientsView: React.FC<{ session: Session, userRole: string }> = ({ s
         });
 
         if (error) {
-            alert(`Error al enviar a revisión: ${error.message}`);
+            alert(`Error al guardar en base de datos: ${error.message}`);
         } else {
             setIsCreateModalOpen(false);
             setFormStep(1);
@@ -439,7 +448,7 @@ const WorkerAssignedCasesView: React.FC<{ session: Session }> = ({ session }) =>
 
         if (uploadFile) {
             if (editingUpdate?.file_url) { const oldPath = editingUpdate.file_url.split('case_files/')[1]; if (oldPath) await supabase.storage.from('case_files').remove([oldPath]); }
-            const filePath = `${activeCaseHistory.id}/${Date.now()}_${uploadFile.name}`;
+            const filePath = `${activeCaseHistory.id}/${Date.now()}_${uploadFile.name.replace(/[^a-zA-Z0-9.\-_]/g, '')}`;
             const { error: uploadError } = await supabase.storage.from('case_files').upload(filePath, uploadFile);
             if (!uploadError) { const { data } = supabase.storage.from('case_files').getPublicUrl(filePath); final_url = data.publicUrl; final_name = uploadFile.name; }
         }
@@ -616,7 +625,6 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
         fetchNotifications();
     }, [session.user.id]);
 
-    // SOLUCIÓN: Cierra todos los menús de forma definitiva al elegir cualquier opción
     const handleMenuClick = (view: string) => {
         setActiveView(view);
         setMobileMenuOpen(false);
