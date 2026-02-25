@@ -235,7 +235,8 @@ const ClientDashboard: React.FC<{ session: Session }> = ({ session }) => {
                 <main className="flex-grow flex flex-col relative z-10">
                     {activeView === 'HOME' ? (
                         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                            <div className="text-center font-bold text-5xl md:text-7xl relative w-full flex items-center justify-center font-serif tracking-widest">
+                            {/* SOLUCIÓN: ANIMACIÓN AGREGADA AQUÍ */}
+                            <div className="text-center font-bold text-5xl md:text-7xl relative w-full flex items-center justify-center font-serif tracking-widest animate-in fade-in duration-1000 slide-in-from-bottom-8">
                                 <h1 className="text-white drop-shadow-2xl">
                                     Regalado & Regalado
                                 </h1>
