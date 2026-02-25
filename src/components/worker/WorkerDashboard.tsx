@@ -2,9 +2,10 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from '../../services/supabaseClient';
 
-// Vistas compartidas
+// Vistas importadas
 import TimeBillingMaestro from '../admin/TimeBillingMaestro';
 import ExpensesView from './ExpensesView';
+import WorkerProfile from './WorkerProfile'; 
 
 // --- Iconos ---
 const BellIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" /></svg>;
@@ -24,9 +25,9 @@ const Modal: React.FC<{ isOpen: boolean; onClose: () => void; children: React.Re
 };
 
 // ==========================================
-// VISTA 1: DIRECTORIO DE CLIENTES (SOLO LECTURA)
+// VISTA 1: DIRECTORIO DE CLIENTES
 // ==========================================
-const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
+const WorkerClientsView: React.FC<{ session: Session, userRole: string }> = ({ session, userRole }) => {
     const [clients, setClients] = useState<any[]>([]);
     const [cases, setCases] = useState<any[]>([]);
     const [petitions, setPetitions] = useState<any[]>([]);
@@ -148,10 +149,13 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
                     <h1 className="text-3xl font-black uppercase tracking-tighter italic">Directorio de Clientes</h1>
                     <p className="text-zinc-500 text-xs tracking-widest mt-1">Datos protegidos por protocolo Zero-Trust</p>
                 </div>
-                <button onClick={() => { setIsCreateModalOpen(true); setFormStep(1); }} className="bg-white text-black font-bold py-2 px-6 hover:bg-zinc-200 transition-colors uppercase text-xs tracking-widest flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-                    NUEVO CLIENTE
-                </button>
+                
+                {userRole !== 'estudiante' && (
+                    <button onClick={() => { setIsCreateModalOpen(true); setFormStep(1); }} className="bg-white text-black font-bold py-2 px-6 hover:bg-zinc-200 transition-colors uppercase text-xs tracking-widest flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+                        NUEVO CLIENTE
+                    </button>
+                )}
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -343,7 +347,6 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
                 </form>
             </Modal>
 
-            {/* MODAL HISTORIAL DEL CASO (SOLUCIÓN: SOLO LECTURA, SIN FORMULARIO) */}
             <Modal isOpen={!!activeCaseHistory} onClose={() => setActiveCaseHistory(null)}>
                 {activeCaseHistory && (
                     <div className="flex flex-col h-[85vh]">
@@ -379,7 +382,6 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
                                 ))
                             )}
                         </div>
-                        {/* Se eliminó por completo el formulario de "Añadir actualización al caso..." */}
                     </div>
                 )}
             </Modal>
@@ -388,7 +390,7 @@ const WorkerClientsView: React.FC<{ session: Session }> = ({ session }) => {
 };
 
 // ==========================================
-// VISTA 2: CASOS ASIGNADOS (AQUÍ SÍ SE TRABAJA Y SUBEN ARCHIVOS)
+// VISTA 2: CASOS ASIGNADOS
 // ==========================================
 const WorkerAssignedCasesView: React.FC<{ session: Session }> = ({ session }) => {
     const [assignedClientsDict, setAssignedClientsDict] = useState<{ [key: string]: { client: any, cases: any[] } }>({});
@@ -555,9 +557,13 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
         return savedView ? savedView : 'HOME';
     });
 
+    const [userRole, setUserRole] = useState<string>('');
     const [profileMenuOpen, setProfileMenuOpen] = useState(false);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [workerProfilePic, setWorkerProfilePic] = useState<string | null>(null);
+    
+    const [notificationsOpen, setNotificationsOpen] = useState(false);
+    const [notifications, setNotifications] = useState<any[]>([]);
 
     useEffect(() => {
         sessionStorage.setItem('workerActiveView', activeView);
@@ -565,8 +571,11 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
 
     useEffect(() => {
         const setupSecurityAndProfile = async () => {
-            const { data: profile } = await supabase.from('profiles').select('foto_url').eq('id', session.user.id).single();
-            if (profile && profile.foto_url) setWorkerProfilePic(profile.foto_url);
+            const { data: profile } = await supabase.from('profiles').select('foto_url, categoria_usuario').eq('id', session.user.id).single();
+            if (profile) {
+                if (profile.foto_url) setWorkerProfilePic(profile.foto_url);
+                if (profile.categoria_usuario) setUserRole(profile.categoria_usuario);
+            }
 
             const localToken = localStorage.getItem('deviceToken');
             if (localToken) {
@@ -590,31 +599,48 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
             }
         };
 
+        const fetchNotifications = async () => {
+            const { data: updates } = await supabase.from('case_updates')
+                .select('id, descripcion, estado_aprobacion, created_at, caso:cases(titulo)')
+                .eq('perfil_id', session.user.id).in('estado_aprobacion', ['aprobado', 'rechazado']).order('created_at', { ascending: false }).limit(10);
+            
+            const { data: petitions } = await supabase.from('peticiones_acceso')
+                .select('id, tipo, estado, created_at, cliente:profiles!peticiones_acceso_cliente_id_fkey(primer_nombre, primer_apellido)')
+                .eq('trabajador_id', session.user.id).in('estado', ['aprobado', 'rechazado']).order('created_at', { ascending: false }).limit(10);
+
+            const allNotifs = [...(updates || []), ...(petitions || [])].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 15);
+            setNotifications(allNotifs);
+        };
+
         setupSecurityAndProfile();
+        fetchNotifications();
     }, [session.user.id]);
 
     const handleMenuClick = (view: string) => {
         setActiveView(view);
         setMobileMenuOpen(false);
-        setProfileMenuOpen(false); 
+        setProfileMenuOpen(false);
+        setNotificationsOpen(false);
     };
 
     const renderContent = () => {
         switch (activeView) {
-            case 'CLIENTS': return <WorkerClientsView session={session} />;
+            case 'CLIENTS': return <WorkerClientsView session={session} userRole={userRole} />;
             case 'ASSIGNED_CASES': return <WorkerAssignedCasesView session={session} />;
             case 'TIME_BILLING': return <TimeBillingMaestro onCancel={() => handleMenuClick('HOME')} />;
             case 'EXPENSES': return <ExpensesView />;
+            case 'PROFILE': return <WorkerProfile session={session} onCancel={() => handleMenuClick('HOME')} />;
             default: return null;
         }
     };
 
     return (
         <div className="bg-black min-h-screen text-white flex flex-col font-mono relative">
-            {/* CSS GLOBAL PARA OCULTAR LA BARRA DE SCROLL */}
             <style>{`
                 ::-webkit-scrollbar { width: 0px !important; height: 0px !important; background: transparent !important; display: none !important; }
                 * { -ms-overflow-style: none !important; scrollbar-width: none !important; }
+                .scrollbar-hide::-webkit-scrollbar { display: none; }
+                .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
             `}</style>
             
             <header className="flex justify-between items-center p-6 bg-black sticky top-0 z-50">
@@ -643,12 +669,55 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
                 </nav>
 
                 <div className="flex items-center justify-end gap-6 w-32 relative">
-                    <button className="text-zinc-500 hover:text-white transition-colors relative">
-                        <BellIcon />
-                    </button>
                     
+                    {/* DROPDOWN CAMPANITA (GLASSMORPHISM EXTremo) */}
                     <div className="relative">
-                        <button onClick={() => setProfileMenuOpen(true)} className="w-10 h-10 rounded-full border-2 border-zinc-700 flex items-center justify-center hover:border-white transition-all overflow-hidden bg-zinc-900">
+                        <button onClick={() => { setNotificationsOpen(!notificationsOpen); setProfileMenuOpen(false); }} className={`text-zinc-500 hover:text-white transition-colors relative ${notificationsOpen ? 'text-white' : ''}`}>
+                            <BellIcon />
+                            {notifications.length > 0 && <span className="absolute top-0.5 right-0.5 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-black"></span>}
+                        </button>
+
+                        {notificationsOpen && (
+                            <>
+                                <div className="fixed inset-0 z-40" onClick={() => setNotificationsOpen(false)}></div>
+                                <div className="absolute right-0 mt-4 w-80 bg-black/40 backdrop-blur-3xl border border-white/10 shadow-2xl shadow-black rounded-2xl py-2 z-50 animate-in fade-in slide-in-from-top-3 duration-300 overflow-hidden">
+                                    <div className="p-5 border-b border-white/5">
+                                        <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-black">Notificaciones Recientes</p>
+                                    </div>
+                                    <div className="max-h-80 overflow-y-auto scrollbar-hide">
+                                        {notifications.length === 0 ? (
+                                            <p className="p-6 text-xs text-zinc-600 italic text-center">Todo al día.</p>
+                                        ) : (
+                                            notifications.map((n, i) => {
+                                                const isUpdate = n.caso !== undefined;
+                                                const status = isUpdate ? n.estado_aprobacion : n.estado;
+                                                const isApproved = status === 'aprobado';
+                                                
+                                                return (
+                                                    <div key={i} className="p-4 border-b border-white/5 hover:bg-white/5 transition-colors cursor-default">
+                                                        <div className="flex justify-between items-center mb-1">
+                                                            <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded ${isApproved ? 'bg-green-900/50 text-green-400' : 'bg-red-900/50 text-red-400'}`}>
+                                                                {isApproved ? '✓ Aprobado' : '✗ Rechazado'}
+                                                            </span>
+                                                            <span className="text-[9px] text-zinc-500 font-mono">{new Date(n.created_at).toLocaleDateString()}</span>
+                                                        </div>
+                                                        <p className="text-white text-xs font-bold mt-2">
+                                                            {isUpdate ? `Caso: ${n.caso?.titulo}` : (n.tipo === 'info_personal' ? `Acceso a Cliente: ${n.cliente?.primer_nombre}` : 'Nuevo Cliente Creado')}
+                                                        </p>
+                                                        {isUpdate && <p className="text-zinc-400 text-xs mt-1 line-clamp-2">{n.descripcion}</p>}
+                                                    </div>
+                                                );
+                                            })
+                                        )}
+                                    </div>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                    
+                    {/* DROPDOWN PERFIL (GLASSMORPHISM EXTREMO) */}
+                    <div className="relative">
+                        <button onClick={() => { setProfileMenuOpen(!profileMenuOpen); setNotificationsOpen(false); }} className={`w-10 h-10 rounded-full border-2 flex items-center justify-center transition-all overflow-hidden bg-zinc-900 ${profileMenuOpen ? 'border-white' : 'border-zinc-700 hover:border-white'}`}>
                             {workerProfilePic ? (
                                 <img src={workerProfilePic} alt="Perfil" className="w-full h-full object-cover" />
                             ) : (
@@ -659,19 +728,20 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
                         {profileMenuOpen && (
                             <>
                                 <div className="fixed inset-0 z-40" onClick={() => setProfileMenuOpen(false)}></div>
-                                <div className="absolute right-0 mt-4 w-48 bg-black/80 backdrop-blur-md shadow-2xl shadow-black/90 rounded-xl py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-300 overflow-hidden">
-                                    <div className="p-4 border-b border-zinc-800/50">
-                                        <p className="text-[10px] text-zinc-500 uppercase tracking-widest mb-1">Sesión activa</p>
-                                        <p className="text-xs font-bold text-white truncate">{session.user.email}</p>
+                                <div className="absolute right-0 mt-4 w-64 bg-black/40 backdrop-blur-3xl border border-white/10 shadow-2xl shadow-black rounded-2xl py-2 z-50 animate-in fade-in slide-in-from-top-3 duration-300 overflow-hidden">
+                                    <div className="p-5 border-b border-white/5">
+                                        <p className="text-[10px] text-zinc-500 uppercase tracking-widest mb-2 font-black">Sesión activa</p>
+                                        <p className="text-sm font-bold text-white truncate mb-1">{session.user.email}</p>
+                                        <p className="text-[10px] text-blue-400 uppercase tracking-[0.2em] font-black">{userRole}</p>
                                     </div>
-                                    <button onClick={() => handleMenuClick('PROFILE')} className="w-full text-left px-5 py-3 text-sm font-bold uppercase tracking-widest text-zinc-400 hover:text-white hover:bg-white/5 transition-colors">
-                                        Perfil
+                                    <button onClick={() => handleMenuClick('PROFILE')} className="w-full text-left px-5 py-4 text-xs font-bold uppercase tracking-widest text-white hover:bg-white/10 transition-colors border-b border-white/5">
+                                        Mi Perfil
                                     </button>
                                     <button onClick={async () => { 
                                         setProfileMenuOpen(false); 
                                         localStorage.removeItem('deviceToken');
                                         await supabase.auth.signOut(); 
-                                    }} className="w-full text-left px-5 py-3 text-sm font-bold uppercase tracking-widest text-red-400 hover:bg-white/5 transition-colors">
+                                    }} className="w-full text-left px-5 py-4 text-xs font-bold uppercase tracking-widest text-red-400 hover:bg-white/10 transition-colors">
                                         Cerrar Sesión
                                     </button>
                                 </div>
@@ -703,7 +773,7 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
                 </div>
             )}
 
-            <main className="flex-grow flex flex-col relative">
+            <main className="flex-grow flex flex-col relative z-10">
                 {activeView === 'HOME' ? (
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                         <div className="text-center font-black text-6xl relative h-20 w-full flex items-center justify-center">
