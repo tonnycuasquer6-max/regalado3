@@ -8,12 +8,12 @@ import ReportsView from './ReportsView';
 import AdminProfile from './AdminProfile';
 import UserManagementView from './UserManagementView';
 import ListaPerfiles from './ListaPerfiles';
+import ApprovalsView from './ApprovalsView'; 
 
 // --- Iconos ---
 const BellIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" /></svg>;
 const UserIcon = ({ className = "w-5 h-5" }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" /></svg>;
 const MenuIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" /></svg>;
-const ChevronDownIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 ml-1 inline-block"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>;
 
 const AdminDashboard: React.FC<{ session: Session }> = ({ session }) => {
     
@@ -37,11 +37,9 @@ const AdminDashboard: React.FC<{ session: Session }> = ({ session }) => {
 
     useEffect(() => {
         const fetchInitialData = async () => {
-            // Obtener foto de perfil
             const { data: profile } = await supabase.from('profiles').select('foto_url').eq('id', session.user.id).single();
             if (profile?.foto_url) setAdminProfilePic(profile.foto_url);
 
-            // Obtener Notificaciones Pendientes para el Admin
             const { data: petitions } = await supabase.from('peticiones_acceso')
                 .select('id, tipo, created_at, trabajador:profiles!peticiones_acceso_trabajador_id_fkey(primer_nombre, primer_apellido)')
                 .eq('estado', 'pendiente').order('created_at', { ascending: false }).limit(10);
@@ -86,6 +84,7 @@ const AdminDashboard: React.FC<{ session: Session }> = ({ session }) => {
         switch (activeView) {
             case 'TIME_BILLING': return <TimeBillingMaestro onCancel={() => handleNavigate('HOME')} />;
             case 'REPORTS': return <ReportsView onCancel={() => handleNavigate('HOME')} />;
+            case 'APPROVALS': return <ApprovalsView onCancel={() => handleNavigate('HOME')} />;
             case 'PROFILE': return <AdminProfile session={session} onCancel={() => handleNavigate('HOME')} />;
             case 'CREATE_USER': return <UserManagementView preselectedRole={selectedRoleForCreate} onCancel={() => handleNavigate('HOME')} />;
             case 'LIST_USERS': return selectedRoleForView ? <ListaPerfiles role={selectedRoleForView} onCancel={() => handleNavigate('HOME')} /> : null;
@@ -94,7 +93,7 @@ const AdminDashboard: React.FC<{ session: Session }> = ({ session }) => {
     };
 
     return (
-        <div className="bg-black min-h-screen text-white flex flex-col font-mono relative">
+        <div className="bg-black min-h-screen text-white flex flex-col font-sans relative">
             <style>{`
                 ::-webkit-scrollbar { width: 0px !important; height: 0px !important; background: transparent !important; display: none !important; }
                 * { -ms-overflow-style: none !important; scrollbar-width: none !important; }
@@ -106,23 +105,21 @@ const AdminDashboard: React.FC<{ session: Session }> = ({ session }) => {
                 <button onClick={() => setMobileMenuOpen(true)} className="md:hidden text-zinc-400 hover:text-white">
                     <MenuIcon />
                 </button>
-                <div className="font-black text-2xl tracking-[0.3em] cursor-pointer hover:text-zinc-300 transition-colors hidden md:block w-32" onClick={() => handleNavigate('HOME')}>
-                    R&R
+                <div className="font-serif font-bold text-2xl tracking-widest cursor-pointer hover:text-zinc-300 transition-colors hidden md:block w-32" onClick={() => handleNavigate('HOME')}>
+                    R & R
                 </div>
                 
-                <nav className="hidden md:flex flex-grow justify-center gap-8 lg:gap-12 items-center relative z-40">
-                    <button onClick={() => handleNavigate('TIME_BILLING')} className={`text-sm lg:text-base uppercase font-black tracking-[0.2em] transition-colors ${activeView === 'TIME_BILLING' ? 'text-white' : 'text-zinc-500 hover:text-white'}`}>Time Billing</button>
-                    <button onClick={() => handleNavigate('REPORTS')} className={`text-sm lg:text-base uppercase font-black tracking-[0.2em] transition-colors ${activeView === 'REPORTS' ? 'text-white' : 'text-zinc-500 hover:text-white'}`}>Reportes</button>
+                <nav className="hidden md:flex flex-grow justify-center gap-6 lg:gap-10 items-center relative z-40">
                     
-                    {/* MENÚ CREAR PERFIL (GLASSMORPHISM) */}
+                    {/* MENÚ REGISTRAR */}
                     <div className="relative">
-                        <button onClick={() => { closeAllMenus(); setCreateMenuOpen(!createMenuOpen); }} className={`text-sm lg:text-base uppercase font-black tracking-[0.2em] transition-colors flex items-center ${activeView === 'CREATE_USER' || createMenuOpen ? 'text-white' : 'text-zinc-500 hover:text-white'}`}>
-                            Crear Perfil <ChevronDownIcon />
+                        <button onClick={() => { closeAllMenus(); setCreateMenuOpen(!createMenuOpen); }} className={`text-sm lg:text-base font-bold transition-colors ${activeView === 'CREATE_USER' || createMenuOpen ? 'text-white' : 'text-zinc-400 hover:text-white'}`}>
+                            Registrar
                         </button>
                         {createMenuOpen && (
                             <>
                                 <div className="fixed inset-0 z-30" onClick={closeAllMenus}></div>
-                                <div className="absolute left-1/2 -translate-x-1/2 mt-6 w-56 bg-black/40 backdrop-blur-3xl border border-white/10 shadow-2xl shadow-black rounded-2xl py-2 z-50 animate-in fade-in slide-in-from-top-3 duration-300 overflow-hidden">
+                                <div className="absolute left-1/2 -translate-x-1/2 mt-6 w-56 bg-black/40 backdrop-blur-3xl border border-white/10 shadow-2xl shadow-black rounded-2xl py-2 z-50 animate-in fade-in slide-in-from-top-3 duration-300 overflow-hidden font-mono">
                                     <button onClick={() => handleCreateClick('abogado')} className="w-full text-left px-5 py-4 text-xs font-bold uppercase tracking-widest text-white hover:bg-white/10 transition-colors border-b border-white/5">Abogado</button>
                                     <button onClick={() => handleCreateClick('estudiante')} className="w-full text-left px-5 py-4 text-xs font-bold uppercase tracking-widest text-white hover:bg-white/10 transition-colors border-b border-white/5">Estudiante</button>
                                     <button onClick={() => handleCreateClick('cliente')} className="w-full text-left px-5 py-4 text-xs font-bold uppercase tracking-widest text-white hover:bg-white/10 transition-colors">Cliente</button>
@@ -131,15 +128,15 @@ const AdminDashboard: React.FC<{ session: Session }> = ({ session }) => {
                         )}
                     </div>
 
-                    {/* MENÚ VER PERFILES (GLASSMORPHISM) */}
+                    {/* MENÚ PERFILES */}
                     <div className="relative">
-                        <button onClick={() => { closeAllMenus(); setViewMenuOpen(!viewMenuOpen); }} className={`text-sm lg:text-base uppercase font-black tracking-[0.2em] transition-colors flex items-center ${activeView === 'LIST_USERS' || viewMenuOpen ? 'text-white' : 'text-zinc-500 hover:text-white'}`}>
-                            Ver Perfiles <ChevronDownIcon />
+                        <button onClick={() => { closeAllMenus(); setViewMenuOpen(!viewMenuOpen); }} className={`text-sm lg:text-base font-bold transition-colors ${activeView === 'LIST_USERS' || viewMenuOpen ? 'text-white' : 'text-zinc-400 hover:text-white'}`}>
+                            Perfiles
                         </button>
                         {viewMenuOpen && (
                             <>
                                 <div className="fixed inset-0 z-30" onClick={closeAllMenus}></div>
-                                <div className="absolute left-1/2 -translate-x-1/2 mt-6 w-56 bg-black/40 backdrop-blur-3xl border border-white/10 shadow-2xl shadow-black rounded-2xl py-2 z-50 animate-in fade-in slide-in-from-top-3 duration-300 overflow-hidden">
+                                <div className="absolute left-1/2 -translate-x-1/2 mt-6 w-56 bg-black/40 backdrop-blur-3xl border border-white/10 shadow-2xl shadow-black rounded-2xl py-2 z-50 animate-in fade-in slide-in-from-top-3 duration-300 overflow-hidden font-mono">
                                     <button onClick={() => handleViewClick('abogado')} className="w-full text-left px-5 py-4 text-xs font-bold uppercase tracking-widest text-white hover:bg-white/10 transition-colors border-b border-white/5">Abogados</button>
                                     <button onClick={() => handleViewClick('estudiante')} className="w-full text-left px-5 py-4 text-xs font-bold uppercase tracking-widest text-white hover:bg-white/10 transition-colors border-b border-white/5">Estudiantes</button>
                                     <button onClick={() => handleViewClick('cliente')} className="w-full text-left px-5 py-4 text-xs font-bold uppercase tracking-widest text-white hover:bg-white/10 transition-colors">Clientes</button>
@@ -147,11 +144,15 @@ const AdminDashboard: React.FC<{ session: Session }> = ({ session }) => {
                             </>
                         )}
                     </div>
+
+                    <button onClick={() => handleNavigate('TIME_BILLING')} className={`text-sm lg:text-base font-bold transition-colors ${activeView === 'TIME_BILLING' ? 'text-white' : 'text-zinc-400 hover:text-white'}`}>Time Billing</button>
+                    <button onClick={() => handleNavigate('APPROVALS')} className={`text-sm lg:text-base font-bold transition-colors ${activeView === 'APPROVALS' ? 'text-white' : 'text-zinc-400 hover:text-white'}`}>Aprobaciones</button>
+                    <button onClick={() => handleNavigate('REPORTS')} className={`text-sm lg:text-base font-bold transition-colors ${activeView === 'REPORTS' ? 'text-white' : 'text-zinc-400 hover:text-white'}`}>Reportes</button>
                 </nav>
 
                 <div className="flex items-center justify-end gap-6 w-32 relative z-50">
                     
-                    {/* DROPDOWN CAMPANITA ADMIN (GLASSMORPHISM) */}
+                    {/* DROPDOWN CAMPANITA ADMIN */}
                     <div className="relative">
                         <button onClick={() => { closeAllMenus(); setNotificationsOpen(!notificationsOpen); }} className={`text-zinc-500 hover:text-white transition-colors relative ${notificationsOpen ? 'text-white' : ''}`}>
                             <BellIcon />
@@ -161,7 +162,7 @@ const AdminDashboard: React.FC<{ session: Session }> = ({ session }) => {
                         {notificationsOpen && (
                             <>
                                 <div className="fixed inset-0 z-40" onClick={closeAllMenus}></div>
-                                <div className="absolute right-0 mt-6 w-80 bg-black/40 backdrop-blur-3xl border border-white/10 shadow-2xl shadow-black rounded-2xl py-2 z-50 animate-in fade-in slide-in-from-top-3 duration-300 overflow-hidden">
+                                <div className="absolute right-0 mt-6 w-80 bg-black/40 backdrop-blur-3xl border border-white/10 shadow-2xl shadow-black rounded-2xl py-2 z-50 animate-in fade-in slide-in-from-top-3 duration-300 overflow-hidden font-mono">
                                     <div className="p-5 border-b border-white/5">
                                         <p className="text-[10px] text-zinc-400 uppercase tracking-widest font-black">Pendiente de Aprobación</p>
                                     </div>
@@ -172,7 +173,7 @@ const AdminDashboard: React.FC<{ session: Session }> = ({ session }) => {
                                             notifications.map((n, i) => {
                                                 const isUpdate = n.caso !== undefined;
                                                 return (
-                                                    <div key={i} onClick={() => { closeAllMenus(); handleViewClick(isUpdate ? 'abogado' : 'cliente'); }} className="p-4 border-b border-white/5 hover:bg-white/10 transition-colors cursor-pointer">
+                                                    <div key={i} onClick={() => { closeAllMenus(); handleNavigate('APPROVALS'); }} className="p-4 border-b border-white/5 hover:bg-white/10 transition-colors cursor-pointer">
                                                         <div className="flex justify-between items-center mb-1">
                                                             <span className="text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded bg-yellow-900/50 text-yellow-400">
                                                                 Revisión Requerida
@@ -195,7 +196,7 @@ const AdminDashboard: React.FC<{ session: Session }> = ({ session }) => {
                         )}
                     </div>
                     
-                    {/* DROPDOWN PERFIL ADMIN (GLASSMORPHISM) */}
+                    {/* DROPDOWN PERFIL ADMIN */}
                     <div className="relative">
                         <button onClick={() => { closeAllMenus(); setProfileMenuOpen(!profileMenuOpen); }} className={`w-10 h-10 rounded-full border-2 flex items-center justify-center transition-all overflow-hidden bg-zinc-900 ${profileMenuOpen ? 'border-white' : 'border-zinc-700 hover:border-white'}`}>
                             {adminProfilePic ? (
@@ -208,7 +209,7 @@ const AdminDashboard: React.FC<{ session: Session }> = ({ session }) => {
                         {profileMenuOpen && (
                             <>
                                 <div className="fixed inset-0 z-40" onClick={closeAllMenus}></div>
-                                <div className="absolute right-0 mt-6 w-64 bg-black/40 backdrop-blur-3xl border border-white/10 shadow-2xl shadow-black rounded-2xl py-2 z-50 animate-in fade-in slide-in-from-top-3 duration-300 overflow-hidden">
+                                <div className="absolute right-0 mt-6 w-64 bg-black/40 backdrop-blur-3xl border border-white/10 shadow-2xl shadow-black rounded-2xl py-2 z-50 animate-in fade-in slide-in-from-top-3 duration-300 overflow-hidden font-mono">
                                     <div className="p-5 border-b border-white/5">
                                         <p className="text-[10px] text-zinc-500 uppercase tracking-widest mb-2 font-black">Sesión activa</p>
                                         <p className="text-sm font-bold text-white truncate mb-1">{session.user.email}</p>
@@ -234,19 +235,30 @@ const AdminDashboard: React.FC<{ session: Session }> = ({ session }) => {
             {mobileMenuOpen && (
                 <div className="fixed inset-0 bg-black/95 backdrop-blur-md z-[100] flex flex-col font-mono p-6">
                     <div className="flex justify-between items-center mb-12">
-                        <div className="font-black text-2xl tracking-[0.3em]">R&R</div>
-                        <button onClick={() => setMobileMenuOpen(false)} className="text-zinc-500 hover:text-white">CERRAR</button>
+                        <div className="font-serif font-bold text-2xl tracking-widest">R & R</div>
+                        <button onClick={() => setMobileMenuOpen(false)} className="text-zinc-500 hover:text-white font-bold">CERRAR</button>
                     </div>
-                    <div className="flex flex-col gap-8 text-left">
-                        <button onClick={() => handleNavigate('HOME')} className={`text-2xl font-black uppercase tracking-[0.2em] text-left ${activeView === 'HOME' ? 'text-white' : 'text-zinc-600'}`}>Inicio</button>
-                        <button onClick={() => handleNavigate('TIME_BILLING')} className={`text-2xl font-black uppercase tracking-[0.2em] text-left ${activeView === 'TIME_BILLING' ? 'text-white' : 'text-zinc-600'}`}>Time Billing</button>
-                        <button onClick={() => handleNavigate('REPORTS')} className={`text-2xl font-black uppercase tracking-[0.2em] text-left ${activeView === 'REPORTS' ? 'text-white' : 'text-zinc-600'}`}>Reportes</button>
+                    <div className="flex flex-col gap-6 text-left">
+                        <button onClick={() => handleNavigate('HOME')} className={`text-xl font-bold text-left ${activeView === 'HOME' ? 'text-white' : 'text-zinc-400'}`}>Inicio</button>
                         
-                        <div className="mt-8 border-t border-zinc-900 pt-8 flex flex-col gap-6">
-                            <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-black">Crear Perfiles</p>
-                            <button onClick={() => handleCreateClick('abogado')} className="text-lg font-bold uppercase tracking-widest text-left text-zinc-400">Abogado</button>
-                            <button onClick={() => handleCreateClick('estudiante')} className="text-lg font-bold uppercase tracking-widest text-left text-zinc-400">Estudiante</button>
-                            <button onClick={() => handleCreateClick('cliente')} className="text-lg font-bold uppercase tracking-widest text-left text-zinc-400">Cliente</button>
+                        <div className="mt-4 border-t border-zinc-900 pt-6 flex flex-col gap-4">
+                            <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-black">Registrar</p>
+                            <button onClick={() => handleCreateClick('abogado')} className="text-lg font-bold text-left text-white">Abogado</button>
+                            <button onClick={() => handleCreateClick('estudiante')} className="text-lg font-bold text-left text-white">Estudiante</button>
+                            <button onClick={() => handleCreateClick('cliente')} className="text-lg font-bold text-left text-white">Cliente</button>
+                        </div>
+                        
+                        <div className="mt-4 border-t border-zinc-900 pt-6 flex flex-col gap-4">
+                            <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-black">Perfiles</p>
+                            <button onClick={() => handleViewClick('abogado')} className="text-lg font-bold text-left text-white">Abogados</button>
+                            <button onClick={() => handleViewClick('estudiante')} className="text-lg font-bold text-left text-white">Estudiantes</button>
+                            <button onClick={() => handleViewClick('cliente')} className="text-lg font-bold text-left text-white">Clientes</button>
+                        </div>
+
+                        <div className="mt-4 border-t border-zinc-900 pt-6 flex flex-col gap-6">
+                            <button onClick={() => handleNavigate('TIME_BILLING')} className={`text-xl font-bold text-left ${activeView === 'TIME_BILLING' ? 'text-white' : 'text-zinc-400'}`}>Time Billing</button>
+                            <button onClick={() => handleNavigate('APPROVALS')} className={`text-xl font-bold text-left ${activeView === 'APPROVALS' ? 'text-white' : 'text-zinc-400'}`}>Aprobaciones</button>
+                            <button onClick={() => handleNavigate('REPORTS')} className={`text-xl font-bold text-left ${activeView === 'REPORTS' ? 'text-white' : 'text-zinc-400'}`}>Reportes</button>
                         </div>
                     </div>
                 </div>
@@ -255,8 +267,8 @@ const AdminDashboard: React.FC<{ session: Session }> = ({ session }) => {
             <main className="flex-grow flex flex-col relative z-10">
                 {activeView === 'HOME' ? (
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                        <div className="text-center font-black text-6xl relative h-20 w-full flex items-center justify-center">
-                            <h1 className="absolute transition-all duration-1000 ease-in-out opacity-100 tracking-[.2em]">
+                        <div className="text-center font-bold text-5xl md:text-7xl relative w-full flex items-center justify-center font-serif tracking-widest">
+                            <h1 className="text-white drop-shadow-2xl">
                                 Regalado & Regalado
                             </h1>
                         </div>
