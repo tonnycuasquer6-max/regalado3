@@ -616,6 +616,7 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
         fetchNotifications();
     }, [session.user.id]);
 
+    // SOLUCIÓN: Cierra todos los menús de forma definitiva al elegir cualquier opción
     const handleMenuClick = (view: string) => {
         setActiveView(view);
         setMobileMenuOpen(false);
@@ -643,7 +644,7 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
                 .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
             `}</style>
             
-            <header className="flex justify-between items-center p-6 bg-black sticky top-0 z-50">
+            <header className="flex justify-between items-center p-6 bg-black sticky top-0 z-50 border-b border-zinc-900/50">
                 <button onClick={() => setMobileMenuOpen(true)} className="md:hidden text-zinc-400 hover:text-white">
                     <MenuIcon />
                 </button>
@@ -670,7 +671,6 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
 
                 <div className="flex items-center justify-end gap-6 w-32 relative">
                     
-                    {/* DROPDOWN CAMPANITA (GLASSMORPHISM EXTremo) */}
                     <div className="relative">
                         <button onClick={() => { setNotificationsOpen(!notificationsOpen); setProfileMenuOpen(false); }} className={`text-zinc-500 hover:text-white transition-colors relative ${notificationsOpen ? 'text-white' : ''}`}>
                             <BellIcon />
@@ -694,7 +694,7 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
                                                 const isApproved = status === 'aprobado';
                                                 
                                                 return (
-                                                    <div key={i} className="p-4 border-b border-white/5 hover:bg-white/5 transition-colors cursor-default">
+                                                    <div key={i} onClick={() => handleMenuClick(isUpdate ? 'ASSIGNED_CASES' : 'CLIENTS')} className="p-4 border-b border-white/5 hover:bg-white/10 transition-colors cursor-pointer">
                                                         <div className="flex justify-between items-center mb-1">
                                                             <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded ${isApproved ? 'bg-green-900/50 text-green-400' : 'bg-red-900/50 text-red-400'}`}>
                                                                 {isApproved ? '✓ Aprobado' : '✗ Rechazado'}
@@ -715,7 +715,6 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
                         )}
                     </div>
                     
-                    {/* DROPDOWN PERFIL (GLASSMORPHISM EXTREMO) */}
                     <div className="relative">
                         <button onClick={() => { setProfileMenuOpen(!profileMenuOpen); setNotificationsOpen(false); }} className={`w-10 h-10 rounded-full border-2 flex items-center justify-center transition-all overflow-hidden bg-zinc-900 ${profileMenuOpen ? 'border-white' : 'border-zinc-700 hover:border-white'}`}>
                             {workerProfilePic ? (
@@ -738,7 +737,7 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
                                         Mi Perfil
                                     </button>
                                     <button onClick={async () => { 
-                                        setProfileMenuOpen(false); 
+                                        handleMenuClick('HOME');
                                         localStorage.removeItem('deviceToken');
                                         await supabase.auth.signOut(); 
                                     }} className="w-full text-left px-5 py-4 text-xs font-bold uppercase tracking-widest text-red-400 hover:bg-white/10 transition-colors">
@@ -751,6 +750,7 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
                 </div>
             </header>
 
+            {/* MENÚ MÓVIL */}
             {mobileMenuOpen && (
                 <div className="fixed inset-0 bg-black/95 backdrop-blur-sm z-[100] flex flex-col font-mono p-6">
                     <div className="flex justify-between items-center mb-12">
