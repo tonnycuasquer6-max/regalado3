@@ -7,47 +7,506 @@ const BellIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewB
 const UserIcon = ({ className = "w-5 h-5" }) => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" /></svg>;
 const MenuIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" /></svg>;
 const CheckIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>;
+const LockClosedIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-12 h-12 text-yellow-500 mx-auto mb-4"><path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" /></svg>;
+const ChevronLeftIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>;
+const ChevronRightIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>;
+const DocumentIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 inline-block mr-1"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>;
+const SendIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" /></svg>;
 
-// --- Componente Modal Fijo ---
-const Modal: React.FC<{ isOpen: boolean; children: React.ReactNode }> = ({ isOpen, children }) => {
+const scrollbarStyle = "overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-zinc-800 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-zinc-700 transition-colors";
+
+const Modal: React.FC<{ isOpen: boolean; onClose: () => void; children: React.ReactNode; preventClose?: boolean }> = ({ isOpen, onClose, children, preventClose = false }) => {
     if (!isOpen) return null;
     return (
-        <div className="fixed inset-0 bg-black/95 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-            {children}
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-sm z-[100] flex items-center justify-center p-4 font-mono">
+            <div className="bg-zinc-950 border border-zinc-800 shadow-2xl w-full max-w-2xl relative overflow-hidden p-8 max-h-[90vh] overflow-y-auto">
+                {!preventClose && <button onClick={onClose} className="absolute top-4 right-4 text-zinc-500 hover:text-white">X</button>}
+                {children}
+            </div>
         </div>
     );
 };
 
-// --- Placeholder Vistas (Se desarrollarán después) ---
-const PlaceholderView = ({ title }: { title: string }) => (
-    <div className="p-8 border border-dashed border-zinc-800 text-center animate-in fade-in duration-500 text-white font-mono h-full flex flex-col items-center justify-center">
-        <h2 className="text-3xl font-black uppercase tracking-widest mb-4">{title}</h2>
-        <p className="text-zinc-500 text-sm tracking-widest uppercase">Próximamente disponible</p>
-    </div>
-);
+// ==========================================
+// VISTA: MIS CASOS
+// ==========================================
+const ClientCasesView: React.FC<{ session: Session }> = ({ session }) => {
+    const [cases, setCases] = useState<any[]>([]);
+    const [activeCaseHistory, setActiveCaseHistory] = useState<any | null>(null);
+    const [caseUpdates, setCaseUpdates] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchCases = async () => {
+            setLoading(true);
+            const { data } = await supabase.from('cases').select('*').eq('cliente_id', session.user.id).order('created_at', { ascending: false });
+            setCases(data || []);
+            setLoading(false);
+        };
+        fetchCases();
+    }, [session.user.id]);
+
+    const openCaseHistory = async (caso: any) => {
+        setActiveCaseHistory(caso);
+        const { data } = await supabase.from('case_updates').select('*').eq('case_id', caso.id).eq('estado_aprobacion', 'aprobado').order('created_at', { ascending: false });
+        setCaseUpdates(data || []);
+    };
+
+    if (loading) return <div className="text-center p-12 text-zinc-500 animate-pulse font-mono">Cargando tus casos...</div>;
+
+    return (
+        <div className="animate-in fade-in duration-500 font-mono w-full max-w-4xl mx-auto">
+            <h2 className="text-2xl font-black uppercase tracking-widest mb-8 border-b border-zinc-900 pb-4">Mis Casos</h2>
+            {cases.length === 0 ? (
+                <div className="p-8 border border-dashed border-zinc-900 text-center text-zinc-600 text-xs tracking-widest uppercase">No tienes casos registrados actualmente.</div>
+            ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {cases.map(c => (
+                        <div key={c.id} onClick={() => openCaseHistory(c)} className="bg-zinc-950 border border-zinc-800 p-6 hover:border-zinc-500 transition-colors cursor-pointer group relative">
+                            <span className={`absolute top-4 right-4 text-[8px] font-black uppercase px-2 py-1 ${c.estado === 'cerrado' ? 'bg-red-950/50 text-red-500' : 'bg-zinc-900 text-zinc-400'}`}>
+                                {c.estado}
+                            </span>
+                            <h3 className="text-lg font-bold text-white mb-2 group-hover:text-blue-400 transition-colors pr-16">{c.titulo}</h3>
+                            <p className="text-xs text-zinc-500 line-clamp-2">{c.descripcion}</p>
+                            <p className="text-[10px] text-zinc-600 mt-4 tracking-widest uppercase font-bold">Ver Línea de Tiempo ›</p>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            <Modal isOpen={!!activeCaseHistory} onClose={() => setActiveCaseHistory(null)}>
+                {activeCaseHistory && (
+                    <div className="flex flex-col">
+                        <div className="mb-6 border-b border-zinc-900 pb-4">
+                            <h2 className="text-xl font-bold italic tracking-widest uppercase text-white">HISTORIAL: {activeCaseHistory.titulo}</h2>
+                            <p className="text-xs text-zinc-500 mt-1">{activeCaseHistory.descripcion}</p>
+                        </div>
+                        <div className={`space-y-8 ${scrollbarStyle} pr-2`}>
+                            {caseUpdates.length === 0 ? (
+                                <p className="text-zinc-600 text-sm italic">Aún no hay actualizaciones en este caso.</p>
+                            ) : (
+                                caseUpdates.map((u) => (
+                                    <div key={u.id} className="relative pl-6 border-l border-zinc-800">
+                                        <div className="absolute w-2 h-2 rounded-full -left-[5px] top-1.5 ring-4 ring-black bg-white"></div>
+                                        <p className="text-[10px] text-zinc-600 font-mono mb-1">{new Date(u.created_at).toLocaleDateString()} • {new Date(u.created_at).toLocaleTimeString()}</p>
+                                        <p className="text-sm text-zinc-300 mt-2">{u.descripcion}</p>
+                                        {u.file_url && (
+                                            <a href={u.file_url} target="_blank" rel="noreferrer" className="inline-flex items-center text-[10px] bg-zinc-900 border border-zinc-800 px-3 py-2 mt-3 text-white hover:bg-zinc-800 uppercase tracking-widest transition-colors">
+                                                <DocumentIcon /> Descargar Documento
+                                            </a>
+                                        )}
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                )}
+            </Modal>
+        </div>
+    );
+};
 
 // ==========================================
-// COMPONENTE PRINCIPAL CLIENT DASHBOARD
+// VISTA: MÉTODOS DE PAGO (SOLUCIÓN: Emojis restaurados)
+// ==========================================
+const ClientPaymentsView: React.FC = () => {
+    const banks = [
+        { id: 1, name: 'Banco del Pichincha', bg: 'bg-[#facc15]', text: 'text-black', logo: '🏦' },
+        { id: 2, name: 'Banco del Pacífico', bg: 'bg-[#0ea5e9]', text: 'text-white', logo: '🌊' },
+        { id: 3, name: 'Banco de Guayaquil', bg: 'bg-[#db2777]', text: 'text-white', logo: '🏛️' }
+    ];
+
+    return (
+        <div className="animate-in fade-in duration-500 font-mono w-full max-w-5xl mx-auto">
+            <h2 className="text-2xl font-black uppercase tracking-widest mb-8 border-b border-zinc-900 pb-4 text-center md:text-left">Cuentas Autorizadas</h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                {banks.map(bank => (
+                    <div key={bank.id} className="bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden shadow-2xl flex flex-col transform hover:scale-105 transition-transform duration-300">
+                        <div className={`${bank.bg} ${bank.text} p-6 flex flex-col items-center justify-center text-center h-32`}>
+                            <span className="text-4xl mb-2">{bank.logo}</span>
+                            <h3 className="font-black uppercase tracking-widest text-sm">{bank.name}</h3>
+                        </div>
+                        <div className="p-6 bg-black flex-grow flex flex-col justify-center">
+                            <div className="mb-4">
+                                <p className="text-[10px] text-zinc-600 uppercase tracking-[0.2em] font-bold mb-1">PROPIETARIO</p>
+                                <p className="text-sm font-bold text-white uppercase tracking-widest">REGALADO Y REGALADO</p>
+                            </div>
+                            <div>
+                                <p className="text-[10px] text-zinc-600 uppercase tracking-[0.2em] font-bold mb-1">NÚMERO DE CUENTA</p>
+                                <p className="text-xl font-mono font-black text-green-400 tracking-[0.2em]">1111111111</p>
+                            </div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+            <p className="text-center text-zinc-500 text-xs mt-12 tracking-widest uppercase">Por favor, envíe el comprobante de transferencia mediante el chat o correo electrónico.</p>
+        </div>
+    );
+};
+
+// ==========================================
+// VISTA: CHAT INTERNO
+// ==========================================
+const ClientChatView: React.FC<{ session: Session }> = ({ session }) => {
+    const [adminProfile, setAdminProfile] = useState<any>(null);
+    const [lawyers, setLawyers] = useState<any[]>([]);
+    const [clientCases, setClientCases] = useState<any[]>([]);
+    const [assignments, setAssignments] = useState<any[]>([]);
+
+    const [selectedContact, setSelectedContact] = useState<any>(null);
+    const [chatStep, setChatStep] = useState<'status' | 'case' | 'chat'>('status');
+    const [selectedStatus, setSelectedStatus] = useState<'abierto' | 'cerrado' | null>(null);
+    const [selectedCase, setSelectedCase] = useState<any>(null);
+    const [message, setMessage] = useState('');
+
+    useEffect(() => {
+        const fetchChatData = async () => {
+            const { data: admin } = await supabase.from('profiles').select('*').eq('rol', 'admin').limit(1).single();
+            if (admin) setAdminProfile(admin);
+
+            const { data: cases } = await supabase.from('cases').select('*').eq('cliente_id', session.user.id);
+            setClientCases(cases || []);
+
+            if (cases && cases.length > 0) {
+                const caseIds = cases.map(c => c.id);
+                const { data: asgs } = await supabase.from('asignaciones_casos').select('*').in('case_id', caseIds);
+                setAssignments(asgs || []);
+
+                if (asgs && asgs.length > 0) {
+                    const lawyerIds = [...new Set(asgs.map(a => a.abogado_id))];
+                    const { data: lawyersData } = await supabase.from('profiles').select('*').in('id', lawyerIds);
+                    setLawyers(lawyersData || []);
+                }
+            }
+        };
+        fetchChatData();
+    }, [session.user.id]);
+
+    const handleContactClick = (contact: any) => {
+        setSelectedContact(contact);
+        setChatStep('status');
+        setSelectedStatus(null);
+        setSelectedCase(null);
+    };
+
+    const handleStatusClick = (status: 'abierto' | 'cerrado') => {
+        setSelectedStatus(status);
+        setChatStep('case');
+    };
+
+    const handleCaseClick = (caso: any) => {
+        setSelectedCase(caso);
+        setChatStep('chat');
+    };
+
+    const filteredCases = clientCases.filter(c => {
+        if (c.estado !== selectedStatus) return false;
+        if (selectedContact?.rol !== 'admin') {
+            const isAssigned = assignments.some(a => a.case_id === c.id && a.abogado_id === selectedContact.id);
+            if (!isAssigned) return false;
+        }
+        return true;
+    });
+
+    return (
+        <div className="animate-in fade-in duration-500 font-mono w-full max-w-6xl mx-auto h-[75vh] flex flex-col md:flex-row border border-zinc-800 bg-black">
+            
+            {/* SIDEBAR CONTACTOS */}
+            <div className="w-full md:w-1/3 border-b md:border-b-0 md:border-r border-zinc-800 flex flex-col bg-zinc-950">
+                <div className="p-4 border-b border-zinc-800">
+                    <h2 className="text-sm font-black uppercase tracking-widest text-zinc-400">Canales de Chat</h2>
+                </div>
+                <div className="flex-grow overflow-y-auto">
+                    {/* Admin */}
+                    {adminProfile && (
+                        <button onClick={() => handleContactClick(adminProfile)} className={`w-full text-left p-4 border-b border-zinc-800/50 flex items-center gap-4 transition-colors ${selectedContact?.id === adminProfile.id ? 'bg-zinc-900 border-l-2 border-l-white' : 'hover:bg-zinc-900 border-l-2 border-l-transparent'}`}>
+                            <div className="w-12 h-12 rounded-full border border-zinc-700 overflow-hidden flex-shrink-0 bg-black">
+                                {adminProfile.foto_url ? <img src={adminProfile.foto_url} className="w-full h-full object-cover" /> : <UserIcon className="w-6 h-6 m-auto mt-3 text-zinc-500"/>}
+                            </div>
+                            <div>
+                                <p className="text-xs font-bold text-white uppercase tracking-widest">{adminProfile.primer_nombre} {adminProfile.primer_apellido}</p>
+                                <p className="text-[9px] text-blue-400 uppercase tracking-widest mt-1">Administración</p>
+                            </div>
+                        </button>
+                    )}
+                    {/* Abogados Asignados */}
+                    {lawyers.map(lw => (
+                        <button key={lw.id} onClick={() => handleContactClick(lw)} className={`w-full text-left p-4 border-b border-zinc-800/50 flex items-center gap-4 transition-colors ${selectedContact?.id === lw.id ? 'bg-zinc-900 border-l-2 border-l-white' : 'hover:bg-zinc-900 border-l-2 border-l-transparent'}`}>
+                            <div className="w-12 h-12 rounded-full border border-zinc-700 overflow-hidden flex-shrink-0 bg-black">
+                                {lw.foto_url ? <img src={lw.foto_url} className="w-full h-full object-cover" /> : <UserIcon className="w-6 h-6 m-auto mt-3 text-zinc-500"/>}
+                            </div>
+                            <div>
+                                <p className="text-xs font-bold text-white uppercase tracking-widest">{lw.primer_nombre} {lw.primer_apellido}</p>
+                                <p className="text-[9px] text-green-400 uppercase tracking-widest mt-1">Abogado Asignado</p>
+                            </div>
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            {/* ÁREA DE CONTENIDO */}
+            <div className="flex-grow flex flex-col bg-[#050505] relative">
+                {!selectedContact ? (
+                    <div className="flex-grow flex items-center justify-center p-8 text-center">
+                        <p className="text-zinc-500 uppercase tracking-widest text-sm font-bold">Selecciona un contacto a la izquierda para iniciar</p>
+                    </div>
+                ) : (
+                    <>
+                        <div className="p-4 border-b border-zinc-800 bg-zinc-950 flex items-center gap-4">
+                            <div className="w-8 h-8 rounded-full border border-zinc-700 overflow-hidden flex-shrink-0 bg-black">
+                                {selectedContact.foto_url ? <img src={selectedContact.foto_url} className="w-full h-full object-cover" /> : <UserIcon className="w-4 h-4 m-auto mt-2 text-zinc-500"/>}
+                            </div>
+                            <div>
+                                <h3 className="font-bold uppercase tracking-widest text-sm text-white">{selectedContact.primer_nombre} {selectedContact.primer_apellido}</h3>
+                                <p className="text-[8px] text-zinc-500 uppercase tracking-widest">{selectedContact.rol === 'admin' ? 'Administración' : 'Abogado'}</p>
+                            </div>
+                        </div>
+
+                        <div className={`flex-grow p-8 flex flex-col ${chatStep === 'chat' ? 'justify-end' : 'justify-center'} overflow-y-auto ${scrollbarStyle}`}>
+                            
+                            {chatStep === 'status' && (
+                                <div className="animate-in fade-in zoom-in duration-300 w-full max-w-md mx-auto text-center">
+                                    <p className="text-zinc-400 mb-8 uppercase tracking-widest text-sm font-bold">Selecciona el caso del cual quieres tener información</p>
+                                    <div className="flex flex-col gap-4">
+                                        <button onClick={() => handleStatusClick('abierto')} className="bg-zinc-900 border border-zinc-800 hover:border-zinc-500 text-white font-black uppercase tracking-widest py-6 px-4 transition-colors">
+                                            Casos Abiertos
+                                        </button>
+                                        <button onClick={() => handleStatusClick('cerrado')} className="bg-zinc-950 border border-zinc-900 hover:border-zinc-700 text-zinc-400 hover:text-white font-black uppercase tracking-widest py-6 px-4 transition-colors">
+                                            Casos Cerrados
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {chatStep === 'case' && (
+                                <div className="animate-in fade-in slide-in-from-right-4 duration-300 w-full max-w-lg mx-auto">
+                                    <button onClick={() => setChatStep('status')} className="text-zinc-500 hover:text-white text-[10px] uppercase tracking-widest mb-6 flex items-center gap-2">‹ Volver</button>
+                                    <p className="text-zinc-400 mb-6 uppercase tracking-widest text-sm font-bold">Selecciona el caso específico:</p>
+                                    
+                                    {filteredCases.length === 0 ? (
+                                        <p className="text-center text-zinc-600 italic border border-dashed border-zinc-800 p-8">No hay casos {selectedStatus}s vinculados a este contacto.</p>
+                                    ) : (
+                                        <div className="space-y-4">
+                                            {filteredCases.map(c => (
+                                                <button key={c.id} onClick={() => handleCaseClick(c)} className="w-full text-left bg-zinc-900 border border-zinc-800 hover:border-white p-4 transition-colors group">
+                                                    <h4 className="font-bold text-white uppercase tracking-widest flex justify-between">
+                                                        {c.titulo} <span className="opacity-0 group-hover:opacity-100 transition-opacity">›</span>
+                                                    </h4>
+                                                    <p className="text-xs text-zinc-500 line-clamp-1 mt-2">{c.descripcion}</p>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {chatStep === 'chat' && (
+                                <div className="animate-in fade-in duration-300 flex flex-col w-full h-full">
+                                    <div className="text-center my-4">
+                                        <span className="bg-zinc-900 border border-zinc-800 text-zinc-400 text-[9px] uppercase tracking-widest px-4 py-2 rounded-full">
+                                            Consulta sobre caso: {selectedCase?.titulo}
+                                        </span>
+                                    </div>
+                                    <div className="flex-grow"></div>
+                                    <div className="self-start bg-zinc-900 border border-zinc-800 p-4 max-w-[80%] rounded-tr-2xl rounded-br-2xl rounded-bl-2xl">
+                                        <p className="text-xs text-zinc-300 leading-relaxed">
+                                            Hola, {selectedContact.rol === 'admin' ? 'bienvenido a administración. ¿En qué podemos ayudarte con este caso?' : 'soy el abogado a cargo de este proceso. ¿Qué duda tienes sobre los avances?'}
+                                        </p>
+                                        <p className="text-[8px] text-zinc-500 text-right mt-3 font-mono">10:00 AM</p>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {chatStep === 'chat' && (
+                            <div className="p-4 border-t border-zinc-800 bg-black animate-in slide-in-from-bottom-4 duration-300">
+                                <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 p-2 rounded-full pr-4 focus-within:border-zinc-500 transition-colors">
+                                    <input 
+                                        type="text" 
+                                        value={message}
+                                        onChange={(e) => setMessage(e.target.value)}
+                                        placeholder="Escribe un mensaje..." 
+                                        className="flex-grow bg-transparent text-white text-sm focus:outline-none px-4 py-2"
+                                    />
+                                    <button className="text-white hover:text-blue-400 transition-colors p-2 bg-zinc-900 rounded-full">
+                                        <SendIcon />
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </>
+                )}
+            </div>
+        </div>
+    );
+};
+
+// ==========================================
+// VISTA: MI PERFIL FINANCIERO (CLIENTE - SOLUCIÓN: Desglose en línea)
+// ==========================================
+const ClientProfileView: React.FC<{ session: Session, profile: any }> = ({ session, profile }) => {
+    const [cases, setCases] = useState<any[]>([]);
+    const [timeEntries, setTimeEntries] = useState<any[]>([]);
+    const [expenses, setExpenses] = useState<any[]>([]);
+    const [currentCaseIndex, setCurrentCaseIndex] = useState(0);
+    const [loading, setLoading] = useState(true);
+    const [showRecords, setShowRecords] = useState(false); // Cambiado a booleano para desglose en línea
+
+    useEffect(() => {
+        const fetchData = async () => {
+            setLoading(true);
+            const { data: myCases } = await supabase.from('cases').select('*').eq('cliente_id', session.user.id).order('created_at', { ascending: false });
+            
+            if (myCases && myCases.length > 0) {
+                setCases(myCases);
+                const caseIds = myCases.map(c => c.id);
+                
+                const { data: times } = await supabase.from('time_entries').select('*').in('caso_id', caseIds).order('fecha_tarea', { ascending: false });
+                setTimeEntries(times || []);
+
+                const { data: exps } = await supabase.from('gastos').select('*').in('caso_id', caseIds);
+                setExpenses(exps || []);
+            }
+            setLoading(false);
+        };
+        fetchData();
+    }, [session.user.id]);
+
+    const handlePrevCase = () => setCurrentCaseIndex(prev => (prev > 0 ? prev - 1 : cases.length - 1));
+    const handleNextCase = () => setCurrentCaseIndex(prev => (prev < cases.length - 1 ? prev + 1 : 0));
+
+    if (loading) return <div className="text-center p-12 text-zinc-500 animate-pulse font-mono">Calculando estado de cuenta...</div>;
+
+    const currentCase = cases[currentCaseIndex];
+    const caseTimes = currentCase ? timeEntries.filter(t => t.caso_id === currentCase.id) : [];
+    const caseExps = currentCase ? expenses.filter(e => e.caso_id === currentCase.id) : [];
+
+    const totalHours = caseTimes.reduce((acc, t) => acc + (t.horas || 0), 0);
+    const totalBilling = caseTimes.reduce((acc, t) => acc + ((t.horas || 0) * (t.tarifa_personalizada || 0)), 0);
+    const totalExpenses = caseExps.reduce((acc, e) => acc + (e.monto || 0), 0);
+    const totalToPay = totalBilling + totalExpenses;
+
+    return (
+        <div className="max-w-5xl mx-auto animate-in fade-in duration-500 font-mono text-white w-full">
+            <header className="flex items-center justify-between mb-8 pb-4 border-b border-zinc-900">
+                <h1 className="text-3xl font-black uppercase tracking-tighter italic">Mi Perfil</h1>
+            </header>
+
+            {profile && (
+                <div className="bg-zinc-950 border border-zinc-900 p-8 flex flex-col md:flex-row items-center gap-8 mb-8 shadow-2xl shadow-black relative overflow-hidden">
+                    <img src={profile.foto_url || 'https://via.placeholder.com/150'} alt="Perfil" className="w-32 h-32 rounded-full border-4 border-zinc-800 object-cover z-10"/>
+                    <div className="text-center md:text-left z-10">
+                        <h2 className="text-3xl font-black uppercase tracking-widest">{profile.primer_nombre} {profile.primer_apellido}</h2>
+                        <p className="text-zinc-500 uppercase tracking-widest mt-1 text-sm">Cliente</p>
+                        <div className="mt-4 flex flex-col gap-1 text-xs text-zinc-400 font-mono">
+                            <p>EMAIL: <span className="text-white">{profile.email}</span></p>
+                            <p>CÉDULA: <span className="text-white">{profile.cedula || 'No registrada'}</span></p>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {cases.length === 0 ? (
+                <PlaceholderView title="Estado Financiero" />
+            ) : (
+                <div className="bg-black border border-zinc-800 shadow-2xl shadow-black/50 p-8">
+                    
+                    <div className="flex items-center justify-between border-b border-zinc-900 pb-6 mb-8">
+                        {cases.length > 1 ? (
+                            <button onClick={handlePrevCase} className="p-2 text-zinc-500 hover:text-white transition-colors bg-zinc-950 border border-zinc-900 rounded-full"><ChevronLeftIcon /></button>
+                        ) : <div className="w-10"></div>}
+                        
+                        <div className="text-center px-4">
+                            <p className="text-[10px] font-black uppercase text-zinc-600 tracking-[0.3em] mb-1">Estado de Cuenta</p>
+                            <h3 className="text-xl font-bold tracking-widest text-white uppercase">{currentCase.titulo}</h3>
+                            {currentCase.estado === 'cerrado' && <span className="text-red-500 text-[10px] font-black uppercase tracking-widest mt-1 block">Caso Cerrado</span>}
+                        </div>
+
+                        {cases.length > 1 ? (
+                            <button onClick={handleNextCase} className="p-2 text-zinc-500 hover:text-white transition-colors bg-zinc-950 border border-zinc-900 rounded-full"><ChevronRightIcon /></button>
+                        ) : <div className="w-10"></div>}
+                    </div>
+
+                    <div className="bg-zinc-950 border border-zinc-900 p-8 mb-8">
+                        <div className="flex justify-between items-center mb-6 border-b border-zinc-900 pb-6">
+                            <p className="text-zinc-400 uppercase tracking-widest text-sm font-bold">Total de Horas Trabajadas</p>
+                            <p className="text-white font-mono font-bold text-lg">{totalHours.toFixed(2)} hrs</p>
+                        </div>
+                        <div className="flex justify-between items-center mb-4">
+                            <p className="text-zinc-500 uppercase tracking-widest text-xs font-bold">Honorarios (Time Billing)</p>
+                            <p className="text-zinc-300 font-mono font-bold">${totalBilling.toFixed(2)}</p>
+                        </div>
+                        <div className="flex justify-between items-center mb-6">
+                            <p className="text-zinc-500 uppercase tracking-widest text-xs font-bold">Gastos Reembolsables</p>
+                            <p className="text-zinc-300 font-mono font-bold">${totalExpenses.toFixed(2)}</p>
+                        </div>
+                        <div className="border-t-2 border-dashed border-zinc-800 pt-8 mt-2 flex justify-between items-end">
+                            <div>
+                                <p className="text-white uppercase tracking-[0.3em] text-sm font-black">TOTAL A PAGAR</p>
+                                <p className="text-[9px] text-zinc-500 tracking-widest mt-1 uppercase font-bold">Valor acumulado a la fecha</p>
+                            </div>
+                            <p className="text-green-500 font-black text-4xl tracking-wider">${totalToPay.toFixed(2)}</p>
+                        </div>
+                    </div>
+
+                    <div className="flex justify-end">
+                        <button onClick={() => setShowRecords(!showRecords)} className="bg-white text-black font-bold py-3 px-8 text-[10px] tracking-[0.2em] uppercase hover:bg-zinc-300 transition-colors shadow-lg shadow-black/50">
+                            {showRecords ? 'OCULTAR REGISTROS' : 'VER REGISTRO DE TAREAS'}
+                        </button>
+                    </div>
+
+                    {/* SOLUCIÓN: Desglose en línea (Tipo Factura) */}
+                    {showRecords && (
+                        <div className="mt-8 animate-in fade-in slide-in-from-top-4 duration-500 border-t border-zinc-900 pt-8">
+                            <p className="text-[10px] font-black uppercase text-zinc-600 tracking-[0.3em] mb-4">REGISTRO DE ACTIVIDADES</p>
+                            <div className="space-y-2">
+                                {caseTimes.length === 0 ? (
+                                    <p className="text-zinc-600 italic text-sm text-center py-8 border border-dashed border-zinc-900">No hay tareas registradas.</p>
+                                ) : (
+                                    caseTimes.map((te) => {
+                                        const totalCobrar = (te.horas || 0) * (te.tarifa_personalizada || 0);
+                                        return (
+                                            <div key={te.id} className="bg-zinc-950 border border-zinc-900 p-4 flex flex-col gap-3">
+                                                <div className="flex justify-between items-start border-b border-zinc-900 pb-2">
+                                                    <p className="text-zinc-500 font-mono text-[10px]">{te.fecha_tarea}</p>
+                                                    <p className="text-green-500 font-black font-mono text-sm tracking-wider">${totalCobrar.toFixed(2)}</p>
+                                                </div>
+                                                <p className="text-zinc-300 text-sm">{te.descripcion_tarea}</p>
+                                                <div className="flex gap-6 mt-2 pt-2 border-t border-zinc-900/50">
+                                                    <p className="text-zinc-500 text-[10px] font-mono uppercase tracking-widest">TIEMPO: <span className="text-white font-bold">{te.horas} hrs</span></p>
+                                                    <p className="text-zinc-500 text-[10px] font-mono uppercase tracking-widest">TARIFA: <span className="text-white font-bold">${te.tarifa_personalizada || 0}/hr</span></p>
+                                                </div>
+                                            </div>
+                                        );
+                                    })
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
+// ==========================================
+// COMPONENTE PRINCIPAL (DASHBOARD)
 // ==========================================
 const ClientDashboard: React.FC<{ session: Session }> = ({ session }) => {
     
     const [activeView, setActiveView] = useState('HOME');
-    const [profilePic, setProfilePic] = useState<string | null>(null);
-    const [clientName, setClientName] = useState('');
+    const [clientProfile, setClientProfile] = useState<any>(null);
     
-    // --- Menús y Notificaciones ---
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [notificationsOpen, setNotificationsOpen] = useState(false);
     const [profileMenuOpen, setProfileMenuOpen] = useState(false);
     const [notifications, setNotifications] = useState<any[]>([]);
 
-    // --- Modal de Cambio de Contraseña Forzado ---
     const [showPasswordModal, setShowPasswordModal] = useState(false);
     const [newPassword, setNewPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [passLoading, setPassLoading] = useState(false);
 
-    // Validaciones exactas del diseño
     const lenCheck = newPassword.length >= 8 && newPassword.length <= 20;
     const upperCheck = /[A-Z]/.test(newPassword);
     const lowerCheck = /[a-z]/.test(newPassword);
@@ -61,8 +520,7 @@ const ClientDashboard: React.FC<{ session: Session }> = ({ session }) => {
         const fetchInitialData = async () => {
             const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
             if (profile) {
-                setClientName(profile.primer_nombre || session.user.email);
-                setProfilePic(profile.foto_url);
+                setClientProfile(profile);
 
                 if (profile.cambiar_pass_obligatorio === true) {
                     setShowPasswordModal(true);
@@ -115,10 +573,10 @@ const ClientDashboard: React.FC<{ session: Session }> = ({ session }) => {
 
     const renderContent = () => {
         switch (activeView) {
-            case 'CASES': return <PlaceholderView title="Mis Casos" />;
-            case 'PAYMENTS': return <PlaceholderView title="Métodos de Pago" />;
-            case 'CHAT': return <PlaceholderView title="Chat" />;
-            case 'PROFILE': return <PlaceholderView title="Mi Perfil" />;
+            case 'CASES': return <ClientCasesView session={session} />;
+            case 'PAYMENTS': return <ClientPaymentsView />;
+            case 'CHAT': return <ClientChatView session={session} />;
+            case 'PROFILE': return <ClientProfileView session={session} profile={clientProfile} />;
             default: return null;
         }
     };
@@ -162,7 +620,7 @@ const ClientDashboard: React.FC<{ session: Session }> = ({ session }) => {
                                     <div className="fixed inset-0 z-40" onClick={closeAllMenus}></div>
                                     <div className="absolute right-0 mt-6 w-80 bg-black/40 backdrop-blur-3xl border border-white/10 shadow-2xl shadow-black rounded-2xl py-2 z-50 animate-in fade-in slide-in-from-top-3 duration-300 overflow-hidden font-mono">
                                         <div className="p-5 border-b border-white/5">
-                                            <p className="text-[10px] text-zinc-400 uppercase tracking-widest font-black">Actualizaciones Recientes</p>
+                                            <p className="text-[10px] text-zinc-400 uppercase tracking-widest font-black">Actualizaciones de Casos</p>
                                         </div>
                                         <div className="max-h-80 overflow-y-auto scrollbar-hide">
                                             {notifications.length === 0 ? (
@@ -187,7 +645,7 @@ const ClientDashboard: React.FC<{ session: Session }> = ({ session }) => {
                         {/* PERFIL */}
                         <div className="relative">
                             <button onClick={() => { closeAllMenus(); setProfileMenuOpen(!profileMenuOpen); }} className={`w-10 h-10 rounded-full border-2 flex items-center justify-center transition-all overflow-hidden bg-zinc-900 ${profileMenuOpen ? 'border-white' : 'border-zinc-700 hover:border-white'}`}>
-                                {profilePic ? <img src={profilePic} alt="Perfil" className="w-full h-full object-cover" /> : <UserIcon className="w-6 h-6 text-zinc-400 pointer-events-none" />}
+                                {clientProfile?.foto_url ? <img src={clientProfile.foto_url} alt="Perfil" className="w-full h-full object-cover" /> : <UserIcon className="w-6 h-6 text-zinc-400 pointer-events-none" />}
                             </button>
 
                             {profileMenuOpen && (
@@ -196,7 +654,7 @@ const ClientDashboard: React.FC<{ session: Session }> = ({ session }) => {
                                     <div className="absolute right-0 mt-6 w-56 bg-black/40 backdrop-blur-3xl border border-white/10 shadow-2xl shadow-black rounded-2xl py-2 z-50 animate-in fade-in slide-in-from-top-3 duration-300 overflow-hidden font-mono">
                                         <div className="p-5 border-b border-white/5">
                                             <p className="text-[10px] text-zinc-500 uppercase tracking-widest mb-1 font-black">Hola,</p>
-                                            <p className="text-sm font-bold text-white truncate">{clientName}</p>
+                                            <p className="text-sm font-bold text-white truncate">{clientProfile?.primer_nombre || session.user.email}</p>
                                         </div>
                                         <button onClick={() => handleMenuClick('PROFILE')} className="w-full text-left px-5 py-4 text-xs font-bold uppercase tracking-widest text-white hover:bg-white/10 transition-colors border-b border-white/5">
                                             Mi Perfil
@@ -227,6 +685,7 @@ const ClientDashboard: React.FC<{ session: Session }> = ({ session }) => {
                             <button onClick={() => handleMenuClick('CASES')} className={`text-2xl font-bold text-left ${activeView === 'CASES' ? 'text-white' : 'text-zinc-400'}`}>Mis Casos</button>
                             <button onClick={() => handleMenuClick('PAYMENTS')} className={`text-2xl font-bold text-left ${activeView === 'PAYMENTS' ? 'text-white' : 'text-zinc-400'}`}>Métodos de Pago</button>
                             <button onClick={() => handleMenuClick('CHAT')} className={`text-2xl font-bold text-left ${activeView === 'CHAT' ? 'text-white' : 'text-zinc-400'}`}>Chat</button>
+                            <button onClick={() => handleMenuClick('PROFILE')} className={`text-2xl font-bold text-left ${activeView === 'PROFILE' ? 'text-white' : 'text-zinc-400'}`}>Mi Perfil</button>
                         </div>
                     </div>
                 )}
@@ -235,9 +694,8 @@ const ClientDashboard: React.FC<{ session: Session }> = ({ session }) => {
                 <main className="flex-grow flex flex-col relative z-10">
                     {activeView === 'HOME' ? (
                         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                            {/* SOLUCIÓN: ANIMACIÓN AGREGADA AQUÍ */}
                             <div className="text-center font-bold text-5xl md:text-7xl relative w-full flex items-center justify-center font-serif tracking-widest animate-in fade-in duration-1000 slide-in-from-bottom-8">
-                                <h1 className="text-white drop-shadow-2xl">
+                                <h1 className="text-white drop-shadow-2xl px-4">
                                     Regalado & Regalado
                                 </h1>
                             </div>
@@ -250,9 +708,10 @@ const ClientDashboard: React.FC<{ session: Session }> = ({ session }) => {
                 </main>
 
                 {/* MODAL DE CAMBIO DE CONTRASEÑA FORZADO */}
-                <Modal isOpen={showPasswordModal}>
+                <Modal isOpen={showPasswordModal} preventClose={true}>
                     <form onSubmit={handleUpdatePassword} className="bg-black w-full max-w-md mx-auto p-10 font-serif border border-zinc-800 shadow-2xl shadow-black">
-                        <h2 className="text-sm font-bold tracking-[0.3em] uppercase text-zinc-400 mb-8 text-left">
+                        <LockClosedIcon />
+                        <h2 className="text-sm font-bold tracking-[0.3em] uppercase text-zinc-400 mb-8 text-center">
                             Contraseña Maestra
                         </h2>
                         
@@ -262,6 +721,7 @@ const ClientDashboard: React.FC<{ session: Session }> = ({ session }) => {
                             value={newPassword} 
                             onChange={e => setNewPassword(e.target.value)} 
                             className="w-full bg-transparent border-b-2 border-zinc-700 text-white pb-2 focus:outline-none focus:border-zinc-300 transition-colors mb-6 font-sans text-lg tracking-wider" 
+                            placeholder="Nueva contraseña..."
                         />
                         
                         <div className="bg-[#0a0a0a] border border-zinc-900 p-6 mb-10 flex flex-col gap-4 font-sans text-sm tracking-wide">
@@ -292,6 +752,7 @@ const ClientDashboard: React.FC<{ session: Session }> = ({ session }) => {
                             value={confirmPassword} 
                             onChange={e => setConfirmPassword(e.target.value)} 
                             className="w-full bg-transparent border-b-2 border-zinc-700 text-white pb-2 focus:outline-none focus:border-zinc-300 transition-colors font-sans text-lg tracking-wider mb-2" 
+                            placeholder="Repita la contraseña..."
                         />
                         
                         <div className="h-6 mb-8 font-serif">

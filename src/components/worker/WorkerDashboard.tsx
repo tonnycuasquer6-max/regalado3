@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, Fragment } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from '../../services/supabaseClient';
 
@@ -16,6 +16,7 @@ const DocumentIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" v
 const PaperClipIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 pointer-events-none"><path strokeLinecap="round" strokeLinejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" /></svg>;
 const PencilIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 pointer-events-none"><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" /></svg>;
 const MenuIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" /></svg>;
+const SendIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" /></svg>;
 
 const scrollbarStyle = "overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-zinc-800 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-zinc-700 transition-colors";
 
@@ -87,22 +88,14 @@ const WorkerClientsView: React.FC<{ session: Session, userRole: string }> = ({ s
         setActionLoading(true);
 
         let final_photo_url = null;
-        
-        // SOLUCIÓN: Usar el bucket archivos_perfil y la estructura de nombre que ya tienes
         if (imageFile) {
             const cleanFileName = imageFile.name.replace(/[^a-zA-Z0-9.\-_]/g, '');
             const filePath = `profile_${Date.now()}_${cleanFileName}`;
-            
             const { error: uploadError } = await supabase.storage.from('archivos_perfil').upload(filePath, imageFile);
-            
-            if (uploadError) {
-                alert(`Error al subir la fotografía: ${uploadError.message}`);
-                setActionLoading(false);
-                return;
+            if (!uploadError) {
+                const { data } = supabase.storage.from('archivos_perfil').getPublicUrl(filePath);
+                final_photo_url = data.publicUrl;
             }
-            
-            const { data } = supabase.storage.from('archivos_perfil').getPublicUrl(filePath);
-            final_photo_url = data.publicUrl;
         }
 
         const { error } = await supabase.from('peticiones_acceso').insert({
@@ -276,7 +269,6 @@ const WorkerClientsView: React.FC<{ session: Session, userRole: string }> = ({ s
 
             <Modal isOpen={isCreateModalOpen} onClose={() => setIsCreateModalOpen(false)}>
                 <form onSubmit={handleCreateClient} className="bg-black w-full text-white font-mono flex flex-col max-h-[85vh]">
-                    
                     <div className="p-8 pb-4 flex-shrink-0">
                         <h2 className="text-2xl font-bold mb-2 italic tracking-widest uppercase">REGISTRAR NUEVO CLIENTE</h2>
                         <p className="text-zinc-500 text-xs mb-6">El perfil requerirá aprobación del Administrador.</p>
@@ -557,6 +549,190 @@ const WorkerAssignedCasesView: React.FC<{ session: Session }> = ({ session }) =>
 };
 
 // ==========================================
+// VISTA: CHAT INTERNO (TRABAJADOR)
+// ==========================================
+const WorkerChatView: React.FC<{ session: Session }> = ({ session }) => {
+    const [adminProfile, setAdminProfile] = useState<any>(null);
+    const [assignedClients, setAssignedClients] = useState<any[]>([]);
+    const [assignedCases, setAssignedCases] = useState<any[]>([]);
+
+    const [selectedContact, setSelectedContact] = useState<any>(null);
+    const [chatStep, setChatStep] = useState<'case' | 'chat'>('case');
+    const [selectedCase, setSelectedCase] = useState<any>(null);
+    const [message, setMessage] = useState('');
+
+    useEffect(() => {
+        const fetchChatData = async () => {
+            // 1. Obtener Admin
+            const { data: admin } = await supabase.from('profiles').select('*').eq('rol', 'admin').limit(1).single();
+            if (admin) setAdminProfile(admin);
+
+            // 2. Obtener Casos Asignados a este trabajador
+            const { data: asignaciones } = await supabase.from('asignaciones_casos').select('case_id').eq('abogado_id', session.user.id);
+            if (asignaciones && asignaciones.length > 0) {
+                const caseIds = asignaciones.map(a => a.case_id);
+                const { data: casesData } = await supabase.from('cases').select('*').in('id', caseIds);
+                if (casesData) {
+                    setAssignedCases(casesData);
+                    // 3. Extraer solo los Clientes de esos casos asignados
+                    const clientIds = [...new Set(casesData.map(c => c.cliente_id))];
+                    const { data: clientsData } = await supabase.from('profiles').select('*').in('id', clientIds);
+                    if (clientsData) setAssignedClients(clientsData);
+                }
+            }
+        };
+        fetchChatData();
+    }, [session.user.id]);
+
+    const handleContactClick = (contact: any) => {
+        setSelectedContact(contact);
+        if (contact.rol === 'admin') {
+            setChatStep('chat'); // Admin no necesita seleccionar caso
+            setSelectedCase(null);
+        } else {
+            setChatStep('case'); // Cliente requiere seleccionar caso asignado
+            setSelectedCase(null);
+        }
+    };
+
+    const handleCaseClick = (caso: any) => {
+        setSelectedCase(caso);
+        setChatStep('chat');
+    };
+
+    // Filtrar casos asignados específicos para el cliente seleccionado
+    const filteredClientCases = assignedCases.filter(c => c.cliente_id === selectedContact?.id);
+
+    return (
+        <div className="animate-in fade-in duration-500 font-mono w-full max-w-6xl mx-auto h-[75vh] flex flex-col md:flex-row border border-zinc-800 bg-black">
+            
+            {/* SIDEBAR CONTACTOS */}
+            <div className="w-full md:w-1/3 border-b md:border-b-0 md:border-r border-zinc-800 flex flex-col bg-zinc-950">
+                <div className="p-4 border-b border-zinc-800">
+                    <h2 className="text-sm font-black uppercase tracking-widest text-zinc-400">Mensajes</h2>
+                </div>
+                <div className="flex-grow overflow-y-auto">
+                    {/* Admin Siempre Fijo */}
+                    {adminProfile && (
+                        <button onClick={() => handleContactClick(adminProfile)} className={`w-full text-left p-4 border-b border-zinc-800/50 flex items-center gap-4 transition-colors ${selectedContact?.id === adminProfile.id ? 'bg-zinc-900 border-l-2 border-l-white' : 'hover:bg-zinc-900 border-l-2 border-l-transparent'}`}>
+                            <div className="w-12 h-12 rounded-full border border-zinc-700 overflow-hidden flex-shrink-0 bg-black">
+                                {adminProfile.foto_url ? <img src={adminProfile.foto_url} className="w-full h-full object-cover" /> : <UserIcon className="w-6 h-6 m-auto mt-3 text-zinc-500"/>}
+                            </div>
+                            <div>
+                                <p className="text-xs font-bold text-white uppercase tracking-widest">{adminProfile.primer_nombre} {adminProfile.primer_apellido}</p>
+                                <p className="text-[9px] text-blue-400 uppercase tracking-widest mt-1">Administración</p>
+                            </div>
+                        </button>
+                    )}
+                    
+                    <div className="p-4 border-b border-zinc-800 bg-zinc-950">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-zinc-600">Clientes Asignados</p>
+                    </div>
+
+                    {/* Clientes Asignados */}
+                    {assignedClients.length === 0 ? (
+                        <p className="p-4 text-xs text-zinc-600 italic">No tienes clientes asignados.</p>
+                    ) : (
+                        assignedClients.map(client => (
+                            <button key={client.id} onClick={() => handleContactClick(client)} className={`w-full text-left p-4 border-b border-zinc-800/50 flex items-center gap-4 transition-colors ${selectedContact?.id === client.id ? 'bg-zinc-900 border-l-2 border-l-white' : 'hover:bg-zinc-900 border-l-2 border-l-transparent'}`}>
+                                <div className="w-12 h-12 rounded-full border border-zinc-700 overflow-hidden flex-shrink-0 bg-black">
+                                    {client.foto_url ? <img src={client.foto_url} className="w-full h-full object-cover" /> : <UserIcon className="w-6 h-6 m-auto mt-3 text-zinc-500"/>}
+                                </div>
+                                <div>
+                                    <p className="text-xs font-bold text-white uppercase tracking-widest">{client.primer_nombre} {client.primer_apellido}</p>
+                                    <p className="text-[9px] text-zinc-500 uppercase tracking-widest mt-1">Cliente</p>
+                                </div>
+                            </button>
+                        ))
+                    )}
+                </div>
+            </div>
+
+            {/* ÁREA DE CONTENIDO */}
+            <div className="flex-grow flex flex-col bg-[#050505] relative">
+                {!selectedContact ? (
+                    <div className="flex-grow flex items-center justify-center p-8 text-center">
+                        <p className="text-zinc-500 uppercase tracking-widest text-sm font-bold">Selecciona un contacto a la izquierda para iniciar</p>
+                    </div>
+                ) : (
+                    <>
+                        <div className="p-4 border-b border-zinc-800 bg-zinc-950 flex items-center gap-4">
+                            <div className="w-8 h-8 rounded-full border border-zinc-700 overflow-hidden flex-shrink-0 bg-black">
+                                {selectedContact.foto_url ? <img src={selectedContact.foto_url} className="w-full h-full object-cover" /> : <UserIcon className="w-4 h-4 m-auto mt-2 text-zinc-500"/>}
+                            </div>
+                            <div>
+                                <h3 className="font-bold uppercase tracking-widest text-sm text-white">{selectedContact.primer_nombre} {selectedContact.primer_apellido}</h3>
+                                <p className="text-[8px] text-zinc-500 uppercase tracking-widest">{selectedContact.rol}</p>
+                            </div>
+                        </div>
+
+                        <div className={`flex-grow p-8 flex flex-col ${chatStep === 'chat' ? 'justify-end' : 'justify-center'} overflow-y-auto ${scrollbarStyle}`}>
+                            
+                            {/* PASO: SELECCIONAR CASO (SOLO PARA CLIENTES) */}
+                            {chatStep === 'case' && selectedContact.rol !== 'admin' && (
+                                <div className="animate-in fade-in slide-in-from-right-4 duration-300 w-full max-w-lg mx-auto">
+                                    <p className="text-zinc-400 mb-6 uppercase tracking-widest text-sm font-bold">Selecciona el caso vinculado para chatear:</p>
+                                    
+                                    {filteredClientCases.length === 0 ? (
+                                        <p className="text-center text-zinc-600 italic border border-dashed border-zinc-800 p-8">Este cliente no tiene casos activos asignados a ti.</p>
+                                    ) : (
+                                        <div className="space-y-4">
+                                            {filteredClientCases.map(c => (
+                                                <button key={c.id} onClick={() => handleCaseClick(c)} className="w-full text-left bg-zinc-900 border border-zinc-800 hover:border-white p-4 transition-colors group">
+                                                    <h4 className="font-bold text-white uppercase tracking-widest flex justify-between items-center">
+                                                        {c.titulo} 
+                                                        {c.estado === 'cerrado' && <span className="text-[8px] text-red-500 bg-red-950/50 px-2 py-1 ml-2">CERRADO</span>}
+                                                    </h4>
+                                                    <p className="text-xs text-zinc-500 line-clamp-1 mt-2">{c.descripcion}</p>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* PASO: CHAT ACTIVO */}
+                            {chatStep === 'chat' && (
+                                <div className="animate-in fade-in duration-300 flex flex-col w-full h-full">
+                                    {selectedCase && (
+                                        <div className="text-center my-4">
+                                            <span className="bg-zinc-900 border border-zinc-800 text-zinc-400 text-[9px] uppercase tracking-widest px-4 py-2 rounded-full">
+                                                Conversación vinculada al caso: {selectedCase.titulo}
+                                            </span>
+                                        </div>
+                                    )}
+                                    <div className="flex-grow"></div>
+                                    {/* Aquí irían los mensajes cargados de la BD */}
+                                    <p className="text-zinc-600 text-xs italic text-center">No hay mensajes anteriores.</p>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* BARRA DE TEXTO (SOLO VISIBLE SI ESTÁ EN MODO CHAT) */}
+                        {chatStep === 'chat' && (
+                            <div className="p-4 border-t border-zinc-800 bg-black animate-in slide-in-from-bottom-4 duration-300">
+                                <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 p-2 rounded-full pr-4 focus-within:border-zinc-500 transition-colors">
+                                    <input 
+                                        type="text" 
+                                        value={message}
+                                        onChange={(e) => setMessage(e.target.value)}
+                                        placeholder="Escribe un mensaje..." 
+                                        className="flex-grow bg-transparent text-white text-sm focus:outline-none px-4 py-2"
+                                    />
+                                    <button className="text-white hover:text-blue-400 transition-colors p-2 bg-zinc-900 rounded-full">
+                                        <SendIcon />
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </>
+                )}
+            </div>
+        </div>
+    );
+};
+
+// ==========================================
 // COMPONENTE PRINCIPAL DEL DASHBOARD
 // ==========================================
 const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
@@ -638,6 +814,7 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
             case 'ASSIGNED_CASES': return <WorkerAssignedCasesView session={session} />;
             case 'TIME_BILLING': return <TimeBillingMaestro onCancel={() => handleMenuClick('HOME')} />;
             case 'EXPENSES': return <ExpensesView />;
+            case 'CHAT': return <WorkerChatView session={session} />; // NUEVA VISTA
             case 'PROFILE': return <WorkerProfile session={session} onCancel={() => handleMenuClick('HOME')} />;
             default: return null;
         }
@@ -660,17 +837,18 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
                     R&R
                 </div>
                 
-                <nav className="hidden md:flex flex-grow justify-center gap-8 lg:gap-16">
+                <nav className="hidden md:flex flex-grow justify-center gap-6 lg:gap-12">
                     {[
                         { id: 'CLIENTS', label: 'Clientes' },
-                        { id: 'ASSIGNED_CASES', label: 'Casos Asignados' },
-                        { id: 'TIME_BILLING', label: 'Time Billing' },
-                        { id: 'EXPENSES', label: 'Gastos' }
+                        { id: 'ASSIGNED_CASES', label: 'Casos' },
+                        { id: 'TIME_BILLING', label: 'Billing' },
+                        { id: 'EXPENSES', label: 'Gastos' },
+                        { id: 'CHAT', label: 'Chat' } // AGREGADO AL MENÚ
                     ].map(item => (
                         <button
                             key={item.id}
                             onClick={() => handleMenuClick(item.id)}
-                            className={`text-lg lg:text-xl uppercase font-black tracking-[0.2em] transition-colors ${activeView === item.id ? 'text-white' : 'text-zinc-600 hover:text-zinc-300'}`}
+                            className={`text-sm lg:text-base uppercase font-black tracking-[0.2em] transition-colors ${activeView === item.id ? 'text-white' : 'text-zinc-600 hover:text-zinc-300'}`}
                         >
                             {item.label}
                         </button>
@@ -771,7 +949,8 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
                             { id: 'CLIENTS', label: 'Clientes' },
                             { id: 'ASSIGNED_CASES', label: 'Casos Asignados' },
                             { id: 'TIME_BILLING', label: 'Time Billing' },
-                            { id: 'EXPENSES', label: 'Gastos' }
+                            { id: 'EXPENSES', label: 'Gastos' },
+                            { id: 'CHAT', label: 'Chat' } // AGREGADO
                         ].map(item => (
                             <button key={item.id} onClick={() => handleMenuClick(item.id)} className={`text-2xl font-black uppercase tracking-[0.2em] text-left ${activeView === item.id ? 'text-white' : 'text-zinc-600'}`}>
                                 {item.label}
