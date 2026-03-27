@@ -21,7 +21,7 @@ const PROFILE_COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '
 
 const Modal: React.FC<{ isOpen: boolean; onClose: () => void; children: React.ReactNode }> = ({ isOpen, onClose, children }) => {
     if (!isOpen) return null;
-    return <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4 font-mono"><div className="bg-black border border-zinc-800 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] relative">{children}</div></div>;
+    return <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 font-mono"><div className="bg-black/80 backdrop-blur-xl border border-white/10 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] rounded-2xl relative">{children}</div></div>;
 };
 
 const InputField: React.FC<{ label: string, value: string, onChange: (e: any) => void, type?: string, required?: boolean }> = ({ label, value, onChange, type = 'text', required }) => (
@@ -37,9 +37,15 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
     const [profileToDelete, setProfileToDelete] = useState<Profile | null>(null);
     const [profileToEdit, setProfileToEdit] = useState<Profile | null>(null);
     const [editFormData, setEditFormData] = useState<Partial<Profile>>({});
+    
+    // NUEVO CASO STATES
     const [createCaseClient, setCreateCaseClient] = useState<Profile | null>(null);
+    const [caseType, setCaseType] = useState<'custom' | 'preset' | null>(null);
     const [caseTitle, setCaseTitle] = useState('');
     const [caseDesc, setCaseDesc] = useState('');
+    const [presetSearch, setPresetSearch] = useState('');
+    const [presetOption, setPresetOption] = useState<number | null>(null);
+    const fixedCostOptions = Array.from({ length: 50 }, (_, i) => i + 1);
     
     const [viewCasesClient, setViewCasesClient] = useState<Profile | null>(null);
     const [clientCases, setClientCases] = useState<Case[]>([]);
@@ -127,7 +133,39 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
         });
     };
     
-    const handleCreateCase = async (e: React.FormEvent) => { e.preventDefault(); if (!createCaseClient || !caseTitle) return; setActionLoading(true); const { error } = await supabase.from('cases').insert([{ titulo: caseTitle, descripcion: caseDesc, cliente_id: createCaseClient.id, estado: 'abierto' }]); if (!error) setCreateCaseClient(null); else alert(error.message); setActionLoading(false); };
+    const handleCreateCase = async (e: React.FormEvent) => { 
+        e.preventDefault(); 
+        if (!createCaseClient) return; 
+        
+        let finalTitle = caseTitle;
+        let finalDesc = caseDesc;
+        
+        if (caseType === 'preset' && presetOption) {
+            const baseHours = 0.5 + presetOption * 0.1;
+            const baseRate = 30 + presetOption * 1.5;
+            const hours = Math.round(baseHours * 100) / 100;
+            const rate = Math.round((baseRate + 5) * 100) / 100;
+            
+            finalTitle = `Caso Predeterminado #${presetOption}`;
+            finalDesc = `Tiempo estimado: ${hours}h\nPrecio: $${rate}`;
+        } else if (caseType === 'custom' && (!caseTitle.trim() || !caseDesc.trim())) {
+            alert('Por favor completa el título y descripción');
+            return;
+        }
+
+        setActionLoading(true); 
+        const { error } = await supabase.from('cases').insert([{ titulo: finalTitle.trim(), descripcion: finalDesc.trim(), cliente_id: createCaseClient.id, estado: 'abierto' }]); 
+        if (!error) {
+            setCreateCaseClient(null); 
+            setCaseType(null);
+            setPresetOption(null);
+            setCaseTitle('');
+            setCaseDesc('');
+        } else {
+            alert(error.message); 
+        }
+        setActionLoading(false); 
+    };
 
     const handleOpenViewCases = async (client: Profile) => {
         setViewCasesClient(client);
@@ -196,7 +234,6 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
         });
     };
 
-    // SOLUCIÓN: Limpieza total de permisos y trabajadores al cerrar
     const handleCloseCase = async () => {
         if (!activeCaseHistory) return;
         setConfirmDialog({
@@ -216,7 +253,6 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
         });
     };
 
-    // SOLUCIÓN: Botón para volver a abrir
     const handleReopenCase = async () => {
         if (!activeCaseHistory) return;
         setConfirmDialog({
@@ -244,7 +280,6 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
 
     const handleSelectClientForAssignment = async (client: Profile) => {
         setSelectedAssignClient(client);
-        // NO MOSTRAR CASOS CERRADOS AL MOMENTO DE ASIGNAR TRABAJADORES
         const { data: cases } = await supabase.from('cases').select('*').eq('cliente_id', client.id).eq('estado', 'abierto');
         setAssignCasesList(cases || []);
         const { data: misAsignaciones } = await supabase.from('asignaciones_casos').select('case_id').eq('abogado_id', assignLawyer?.id);
@@ -414,7 +449,6 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
                         <div key={p.id} className="group flex items-center p-4 hover:bg-zinc-900/50 transition-colors">
                             <div className="relative w-14 h-14">
                                 <img src={p.foto_url || 'https://via.placeholder.com/150'} className="w-full h-full rounded-full border-2 border-zinc-800 object-cover" />
-                                {/* Muestra el color de perfil si es trabajador */}
                                 {(role === 'abogado' || role === 'estudiante') && p.color_perfil && (
                                     <span className="absolute bottom-0 right-0 w-4 h-4 rounded-full border-2 border-black" style={{ backgroundColor: p.color_perfil }}></span>
                                 )}
@@ -427,7 +461,7 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
                                 {role === 'cliente' && (
                                     <>
                                         <button onClick={() => handleOpenViewCases(p)} className="text-zinc-500 hover:text-blue-500 transition-colors" title="Ver Casos"><EyeIcon /></button>
-                                        <button onClick={() => {setCreateCaseClient(p); setCaseTitle(''); setCaseDesc('');}} className="text-zinc-500 hover:text-green-400 transition-colors" title="Nuevo Caso"><PlusCircleIcon /></button>
+                                        <button onClick={() => {setCreateCaseClient(p); setCaseTitle(''); setCaseDesc(''); setCaseType(null); setPresetOption(null);}} className="text-zinc-500 hover:text-green-400 transition-colors" title="Nuevo Caso"><PlusCircleIcon /></button>
                                     </>
                                 )}
                                 {(role === 'abogado' || role === 'estudiante') && (
@@ -515,7 +549,6 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
                                     </button>
                                     <div className="flex items-center gap-4 mt-2">
                                         <h2 className="text-lg font-bold italic tracking-widest uppercase text-white">HISTORIAL: {activeCaseHistory.titulo}</h2>
-                                        {/* SOLUCIÓN: BOTONES DE CERRAR / REABRIR SEGÚN EL ESTADO */}
                                         {activeCaseHistory.estado !== 'cerrado' ? (
                                             <button onClick={handleCloseCase} className="bg-red-900/80 text-red-100 border border-red-900 hover:bg-red-800 text-[8px] font-black py-1 px-3 uppercase tracking-widest transition-colors shadow-lg">
                                                 Cerrar Caso
@@ -538,7 +571,6 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
                                                 <div className="absolute w-2 h-2 bg-zinc-700 rounded-full -left-[5px] top-1.5 ring-4 ring-black"></div>
                                                 <div className="flex justify-between items-start">
                                                     <p className="text-[10px] text-zinc-600 font-mono mb-1">{new Date(u.created_at).toLocaleString()}</p>
-                                                    {/* SOLUCIÓN: SI ESTÁ CERRADO, NO HAY OPCIÓN DE EDITAR/BORRAR */}
                                                     {activeCaseHistory.estado !== 'cerrado' && (
                                                         <div className="flex gap-3 opacity-0 group-hover/item:opacity-100 transition-opacity">
                                                             <button type="button" onClick={() => { setEditingUpdate(u); setUpdateDesc(u.descripcion); }} className="text-zinc-600 hover:text-white transition-colors" title="Editar"><PencilIcon /></button>
@@ -556,7 +588,6 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
                                         ))
                                     }
                                 </div>
-                                {/* SOLUCIÓN: SI ESTÁ CERRADO, NO HAY FORMULARIO DE SUBIDA */}
                                 {activeCaseHistory.estado !== 'cerrado' && (
                                     <div className="p-4 bg-zinc-950 border-t border-zinc-900 flex-shrink-0">
                                         <form onSubmit={handleAddOrEditUpdate} className="flex flex-col gap-3">
@@ -607,7 +638,6 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
                                                             {isApproved && <span className="bg-green-900/30 text-green-500 text-[8px] uppercase px-1 py-0.5 rounded font-bold">Aprobado</span>}
                                                         </div>
                                                         
-                                                        {/* SOLUCIÓN: SI ESTÁ CERRADO, NO HAY OPCIÓN DE APROBAR/RECHAZAR/BORRAR */}
                                                         {activeCaseHistory.estado !== 'cerrado' && (
                                                             <div className="flex gap-4 opacity-0 group-hover/item:opacity-100 transition-opacity items-center">
                                                                 {!isApproved && !isRejected && <button type="button" onClick={(e) => { e.stopPropagation(); handleApproveUpdate(u.id); }} className="text-green-600 hover:text-green-400" title="Aprobar (Dar Visto)"><CheckIcon /></button>}
@@ -745,28 +775,88 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
                 </div>
             </Modal>
 
-            <Modal isOpen={!!createCaseClient} onClose={() => setCreateCaseClient(null)}>
-                <form onSubmit={handleCreateCase} className="p-8">
+            <Modal isOpen={!!createCaseClient} onClose={() => {setCreateCaseClient(null); setCaseType(null);}}>
+                <div className="p-8 flex flex-col h-full max-h-[85vh]">
                     <h2 className="text-xl font-bold mb-8 italic tracking-widest uppercase text-white">Nuevo Caso: {createCaseClient?.primer_nombre}</h2>
-                    <div className="space-y-6">
-                        <InputField label="Título" value={caseTitle} onChange={(e) => setCaseTitle(e.target.value)} required />
-                        <InputField label="Descripción" value={caseDesc} onChange={(e) => setCaseDesc(e.target.value)} />
+                    <div className="flex-grow overflow-y-auto pr-2">
+                    {caseType ? (
+                        caseType === 'custom' ? (
+                            <form onSubmit={handleCreateCase} className="space-y-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-zinc-300 uppercase tracking-widest mb-2">Título del Caso</label>
+                                    <input type="text" value={caseTitle} onChange={e => setCaseTitle(e.target.value)} placeholder="Ej: Constitución de Empresa" className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500 transition-colors" required />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-zinc-300 uppercase tracking-widest mb-2">Descripción</label>
+                                    <textarea value={caseDesc} onChange={e => setCaseDesc(e.target.value)} placeholder="Describe los detalles del caso..." className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500 transition-colors h-24 resize-none" required />
+                                </div>
+                                <div className="flex gap-3 pt-4 border-t border-white/10">
+                                    <button type="button" onClick={() => setCaseType(null)} className="flex-1 px-4 py-3 border border-white/10 hover:bg-white/5 text-zinc-300 rounded-xl uppercase text-xs font-bold tracking-widest transition-colors">Atrás</button>
+                                    <button type="submit" disabled={actionLoading || !caseTitle.trim()} className="flex-1 px-4 py-3 bg-blue-600/80 hover:bg-blue-500 text-white rounded-xl uppercase text-xs font-bold tracking-widest transition-colors">
+                                        {actionLoading ? 'Creando...' : 'Crear Caso'}
+                                    </button>
+                                </div>
+                            </form>
+                        ) : (
+                            <form onSubmit={handleCreateCase} className="space-y-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-zinc-300 uppercase tracking-widest mb-3">Selecciona un Caso Predeterminado</label>
+                                    <input type="text" placeholder="Buscar por número..." value={presetSearch} onChange={e => setPresetSearch(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white mb-4 focus:outline-none focus:border-blue-500" />
+                                    <div className={`space-y-2 max-h-64 overflow-y-auto pr-2 ${scrollbarStyle}`}>
+                                        {fixedCostOptions.filter(opt => opt.toString().includes(presetSearch)).map(opt => {
+                                            const baseHours = 0.5 + opt * 0.1;
+                                            const baseRate = 30 + opt * 1.5;
+                                            const hours = Math.round(baseHours * 100) / 100;
+                                            const rate = Math.round((baseRate + 5) * 100) / 100;
+                                            return (
+                                                <div key={opt} onClick={() => setPresetOption(opt)} className={`p-4 border-2 rounded-xl cursor-pointer transition-all ${presetOption === opt ? 'border-green-500 bg-green-900/20' : 'border-white/10 bg-black/50 hover:border-white/30'}`}>
+                                                    <h4 className="font-bold text-white text-sm uppercase tracking-wider mb-1">Caso Predeterminado #{opt}</h4>
+                                                    <div className="flex justify-between text-xs text-zinc-400">
+                                                        <span className="text-green-400 font-bold">Precio Sugerido: ${rate}</span>
+                                                        <span>⏱️ {hours}h</span>
+                                                    </div>
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
+                                </div>
+                                <div className="flex gap-3 pt-4 border-t border-white/10">
+                                    <button type="button" onClick={() => setCaseType(null)} className="flex-1 px-4 py-3 border border-white/10 hover:bg-white/5 text-zinc-300 rounded-xl uppercase text-xs font-bold tracking-widest transition-colors">Atrás</button>
+                                    <button type="submit" disabled={actionLoading || !presetOption} className="flex-1 px-4 py-3 bg-green-600/80 hover:bg-green-500 text-white rounded-xl uppercase text-xs font-bold tracking-widest transition-colors">
+                                        {actionLoading ? 'Creando...' : 'Crear Caso'}
+                                    </button>
+                                </div>
+                            </form>
+                        )
+                    ) : (
+                        <div className="space-y-4">
+                            <p className="text-sm text-zinc-300 mb-6">Selecciona el tipo de caso que deseas crear:</p>
+                            <button onClick={() => setCaseType('custom')} className="w-full p-6 border border-white/10 hover:border-white/30 bg-black/50 hover:bg-white/5 rounded-xl transition-all text-left flex items-start gap-4">
+                                <div>
+                                    <h3 className="font-bold text-white uppercase tracking-widest text-sm mb-1">Caso Personalizado</h3>
+                                    <p className="text-zinc-400 text-xs">Crea un caso con tu propio título y descripción manual.</p>
+                                </div>
+                            </button>
+                            <button onClick={() => setCaseType('preset')} className="w-full p-6 border border-white/10 hover:border-green-500/50 bg-black/50 hover:bg-green-900/10 rounded-xl transition-all text-left flex items-start gap-4">
+                                <div>
+                                    <h3 className="font-bold text-white uppercase tracking-widest text-sm mb-1 text-green-400">Casos Predeterminados (Costos Fijos)</h3>
+                                    <p className="text-zinc-400 text-xs">Elige de una lista de 50 casos con precios y tiempos auto-calculados.</p>
+                                </div>
+                            </button>
+                        </div>
+                    )}
                     </div>
-                    <div className="mt-8 flex justify-end gap-4">
-                        <button type="button" onClick={() => setCreateCaseClient(null)} className="py-2 px-6 text-zinc-400 hover:text-white transition-colors">Cancelar</button>
-                        <button type="submit" disabled={actionLoading} className="bg-white text-black font-bold py-2 px-6 hover:bg-zinc-200 transition-colors disabled:opacity-50">Crear</button>
-                    </div>
-                </form>
+                </div>
             </Modal>
 
             <Modal isOpen={!!profileToEdit} onClose={() => setProfileToEdit(null)}>
                 <form onSubmit={handleUpdateProfile} className="p-8">
                     <h2 className="text-xl font-bold mb-8 italic tracking-widest uppercase text-white">Editar Perfil</h2>
                     <div className="grid grid-cols-2 gap-6">
-                        <InputField label="Nombre" value={editFormData.primer_nombre || ''} onChange={(e) => setEditFormData({...editFormData, primer_nombre: e.target.value})} />
-                        <InputField label="Apellido" value={editFormData.primer_apellido || ''} onChange={(e) => setEditFormData({...editFormData, primer_apellido: e.target.value})} />
-                        <InputField label="Cédula" value={editFormData.cedula || ''} onChange={(e) => setEditFormData({...editFormData, cedula: e.target.value})} />
-                        <InputField label="Email" value={editFormData.email || ''} onChange={(e) => setEditFormData({...editFormData, email: e.target.value})} />
+                        <InputField label="Nombre" value={editFormData.primer_nombre || ''} onChange={(e: any) => setEditFormData({...editFormData, primer_nombre: e.target.value})} />
+                        <InputField label="Apellido" value={editFormData.primer_apellido || ''} onChange={(e: any) => setEditFormData({...editFormData, primer_apellido: e.target.value})} />
+                        <InputField label="Cédula" value={editFormData.cedula || ''} onChange={(e: any) => setEditFormData({...editFormData, cedula: e.target.value})} />
+                        <InputField label="Email" value={editFormData.email || ''} onChange={(e: any) => setEditFormData({...editFormData, email: e.target.value})} />
                         
                         {(role === 'abogado' || role === 'estudiante') && (
                             <div className="col-span-2 pt-6 border-t border-zinc-900 mt-2">
@@ -787,7 +877,7 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
                                                 style={{ backgroundColor: color }}
                                                 title={isUsed && !isSelected ? 'En uso por otro trabajador' : 'Seleccionar color'}
                                             >
-                                                {isSelected && <CheckIcon className="absolute inset-0 m-auto text-white w-4 h-4 stroke-[3]" />}
+                                                {isSelected && <CheckIcon className="absolute inset-0 m-auto text-white w-4 h-4 stroke-[3] drop-shadow-md" />}
                                             </button>
                                         );
                                     })}
@@ -828,7 +918,7 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
                 <div className="p-8">
                     <h2 className="text-xl font-bold mb-6 italic tracking-widest uppercase text-red-500">Motivo de Rechazo</h2>
                     <div className="mb-8">
-                        <InputField label="Escribe el motivo para el trabajador" value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} required />
+                        <InputField label="Escribe el motivo para el trabajador" value={rejectReason} onChange={(e: any) => setRejectReason(e.target.value)} required />
                     </div>
                     <div className="flex justify-end gap-4">
                         <button type="button" onClick={() => { setRejectDialog({ isOpen: false, updateId: '' }); setRejectReason(''); }} className="py-2 px-6 text-zinc-400 hover:text-white transition-colors font-bold uppercase text-[10px] tracking-widest">Cancelar</button>
