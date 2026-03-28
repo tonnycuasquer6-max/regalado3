@@ -28,7 +28,7 @@ const InputField: React.FC<{ label: string, value: string, onChange: (e: any) =>
     <div><label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">{label}</label><input type={type} value={value} onChange={onChange} required={required} className="w-full py-2 px-0 bg-transparent border-b-2 border-zinc-800 text-white focus:outline-none focus:border-zinc-500 transition-colors" /></div>
 );
 
-const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCancel: () => void }> = ({ role, onCancel }) => {
+const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; isContador?: boolean; onCancel: () => void }> = ({ role, isContador, onCancel }) => {
     const [profiles, setProfiles] = useState<Profile[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [loading, setLoading] = useState(true);
@@ -50,7 +50,7 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
     const [viewCasesClient, setViewCasesClient] = useState<Profile | null>(null);
     const [clientCases, setClientCases] = useState<Case[]>([]);
     const [activeCaseHistory, setActiveCaseHistory] = useState<Case | null>(null);
-    const [caseUpdates, setCaseUpdates] = useState<CaseUpdate[]>([]);
+    const [caseUpdates, setCaseUpdates] = useState<any[]>([]);
     const [loadingUpdates, setLoadingUpdates] = useState(false);
     
     const [editingUpdate, setEditingUpdate] = useState<CaseUpdate | null>(null);
@@ -176,9 +176,23 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
     const handleOpenCaseHistory = async (caso: Case) => {
         setActiveCaseHistory(caso);
         setLoadingUpdates(true);
-        const { data } = await supabase.from('case_updates').select('*').eq('case_id', caso.id).order('created_at', { ascending: false });
-        setCaseUpdates(data || []);
+        if (isContador) {
+            try {
+                const { data } = await supabase.from('pagos').select('*').eq('caso_id', caso.id).order('created_at', { ascending: false });
+                setCaseUpdates(data || []);
+            } catch (e) {
+                setCaseUpdates([]);
+            }
+        } else {
+            const { data } = await supabase.from('case_updates').select('*').eq('case_id', caso.id).order('created_at', { ascending: false });
+            setCaseUpdates(data || []);
+        }
         setLoadingUpdates(false);
+    };
+
+    const handleApprovePago = async (id: string) => {
+        await supabase.from('pagos').update({ estado: 'aprobado' }).eq('id', id);
+        setCaseUpdates(prev => prev.map(p => p.id === id ? { ...p, estado: 'aprobado' } : p));
     };
 
     const handleAddOrEditUpdate = async (e: React.FormEvent) => {
@@ -211,8 +225,13 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
     const confirmRejectUpdate = async () => {
         if (!rejectReason.trim()) return;
         setActionLoading(true);
-        const { error } = await supabase.from('case_updates').update({ estado_aprobacion: 'rechazado', observacion: rejectReason }).eq('id', rejectDialog.updateId);
-        if (!error) setCaseUpdates(prev => prev.map(u => u.id === rejectDialog.updateId ? { ...u, estado_aprobacion: 'rechazado', observacion: rejectReason } : u));
+        if (isContador) {
+            await supabase.from('pagos').update({ estado: 'rechazado', motivo_rechazo: rejectReason }).eq('id', rejectDialog.updateId);
+            setCaseUpdates(prev => prev.map(p => p.id === rejectDialog.updateId ? { ...p, estado: 'rechazado', motivo_rechazo: rejectReason } : p));
+        } else {
+            await supabase.from('case_updates').update({ estado_aprobacion: 'rechazado', observacion: rejectReason }).eq('id', rejectDialog.updateId);
+            setCaseUpdates(prev => prev.map(u => u.id === rejectDialog.updateId ? { ...u, estado_aprobacion: 'rechazado', observacion: rejectReason } : u));
+        }
         
         setRejectDialog({ isOpen: false, updateId: '' });
         setRejectReason('');
@@ -461,18 +480,18 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
                                 {role === 'cliente' && (
                                     <>
                                         <button onClick={() => handleOpenViewCases(p)} className="text-zinc-500 hover:text-blue-500 transition-colors" title="Ver Casos"><EyeIcon /></button>
-                                        <button onClick={() => {setCreateCaseClient(p); setCaseTitle(''); setCaseDesc(''); setCaseType(null); setPresetOption(null);}} className="text-zinc-500 hover:text-green-400 transition-colors" title="Nuevo Caso"><PlusCircleIcon /></button>
+                                        {!isContador && <button onClick={() => {setCreateCaseClient(p); setCaseTitle(''); setCaseDesc(''); setCaseType(null); setPresetOption(null);}} className="text-zinc-500 hover:text-green-400 transition-colors" title="Nuevo Caso"><PlusCircleIcon /></button>}
                                     </>
                                 )}
-                                {(role === 'abogado' || role === 'estudiante') && (
+                                {!isContador && (role === 'abogado' || role === 'estudiante') && (
                                     <>
                                         <button onClick={() => handleOpenViewAssignedCases(p)} className="text-zinc-500 hover:text-blue-500 transition-colors" title="Ver Casos Asignados"><EyeIcon /></button>
                                         <button onClick={() => handleOpenPermissions(p)} className="text-zinc-500 hover:text-yellow-500 transition-colors" title="Gestionar Visibilidad/Permisos"><ShieldIcon /></button>
                                         <button onClick={() => handleOpenAssignLawyer(p)} className="text-zinc-500 hover:text-green-500 transition-colors" title="Asignar Cliente/Caso"><DocumentAssignIcon /></button>
                                     </>
                                 )}
-                                <button onClick={() => {setProfileToEdit(p); setEditFormData(p);}} className="text-zinc-500 hover:text-white transition-colors" title="Editar Perfil"><PencilIcon /></button>
-                                <button onClick={() => setProfileToDelete(p)} className="text-zinc-500 hover:text-red-500 transition-colors" title="Eliminar Perfil"><TrashIcon /></button>
+                                {!isContador && <button onClick={() => {setProfileToEdit(p); setEditFormData(p);}} className="text-zinc-500 hover:text-white transition-colors" title="Editar Perfil"><PencilIcon /></button>}
+                                {!isContador && <button onClick={() => setProfileToDelete(p)} className="text-zinc-500 hover:text-red-500 transition-colors" title="Eliminar Perfil"><TrashIcon /></button>}
                             </div>
                         </div>
                     ))}
@@ -549,46 +568,89 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; onCa
                                     </button>
                                     <div className="flex items-center gap-4 mt-2">
                                         <h2 className="text-lg font-bold italic tracking-widest uppercase text-white">HISTORIAL: {activeCaseHistory.titulo}</h2>
-                                        {activeCaseHistory.estado !== 'cerrado' ? (
+                                        {!isContador && activeCaseHistory.estado !== 'cerrado' ? (
                                             <button onClick={handleCloseCase} className="bg-red-900/80 text-red-100 border border-red-900 hover:bg-red-800 text-[8px] font-black py-1 px-3 uppercase tracking-widest transition-colors shadow-lg">
                                                 Cerrar Caso
                                             </button>
-                                        ) : (
+                                        ) : !isContador ? (
                                             <div className="flex items-center gap-2">
                                                 <span className="text-red-500 border border-red-900/50 bg-red-950/30 text-[8px] font-black py-1 px-3 uppercase tracking-widest">CERRADO</span>
                                                 <button onClick={handleReopenCase} className="bg-green-900/80 text-green-100 border border-green-900 hover:bg-green-800 text-[8px] font-black py-1 px-3 uppercase tracking-widest transition-colors shadow-lg">
                                                     Reabrir Caso
                                                 </button>
                                             </div>
-                                        )}
+                                        ) : null}
                                     </div>
                                 </div>
                                 <div className={`p-6 flex-grow bg-black space-y-8 ${scrollbarStyle}`}>
                                     {loadingUpdates ? <p className="text-zinc-500 text-sm">Cargando historial...</p> : 
-                                        caseUpdates.filter(u => u.estado_aprobacion === 'aprobado' || !u.estado_aprobacion).length === 0 ? <p className="text-zinc-600 text-sm italic">El historial visible está vacío.</p> :
-                                        caseUpdates.filter(u => u.estado_aprobacion === 'aprobado' || !u.estado_aprobacion).map((u) => (
-                                            <div key={u.id} className="relative pl-6 border-l border-zinc-800 group/item">
-                                                <div className="absolute w-2 h-2 bg-zinc-700 rounded-full -left-[5px] top-1.5 ring-4 ring-black"></div>
-                                                <div className="flex justify-between items-start">
-                                                    <p className="text-[10px] text-zinc-600 font-mono mb-1">{new Date(u.created_at).toLocaleString()}</p>
-                                                    {activeCaseHistory.estado !== 'cerrado' && (
-                                                        <div className="flex gap-3 opacity-0 group-hover/item:opacity-100 transition-opacity">
-                                                            <button type="button" onClick={() => { setEditingUpdate(u); setUpdateDesc(u.descripcion); }} className="text-zinc-600 hover:text-white transition-colors" title="Editar"><PencilIcon /></button>
-                                                            <button type="button" onClick={(e) => { e.stopPropagation(); handleDeleteUpdate(u); }} className="text-zinc-600 hover:text-red-500 transition-colors" title="Eliminar"><TrashIcon /></button>
+                                        isContador ? (
+                                            caseUpdates.length === 0 ? <p className="text-zinc-600 text-sm italic">No hay historial de pagos para este caso.</p> :
+                                            caseUpdates.map((pago) => (
+                                                <div key={pago.id} className={`relative pl-6 border-l group/item ${pago.estado === 'rechazado' ? 'border-red-900' : 'border-zinc-800'}`}>
+                                                    <div className={`absolute w-2 h-2 rounded-full -left-[5px] top-1.5 ring-4 ring-black ${pago.estado === 'aprobado' ? 'bg-green-500' : pago.estado === 'rechazado' ? 'bg-red-500' : 'bg-yellow-500'}`}></div>
+                                                    
+                                                    <div className="flex justify-between items-start">
+                                                        <div className="flex items-center gap-2">
+                                                            <p className="text-[10px] text-zinc-600 font-mono">{new Date(pago.created_at).toLocaleString()}</p>
+                                                            {pago.estado === 'pendiente' && <span className="bg-yellow-900/30 text-yellow-500 text-[8px] uppercase px-1 py-0.5 rounded font-bold">Por Confirmar</span>}
+                                                            {pago.estado === 'rechazado' && <span className="bg-red-900/30 text-red-500 text-[8px] uppercase px-1 py-0.5 rounded font-bold">Rechazado</span>}
+                                                            {pago.estado === 'aprobado' && <span className="bg-green-900/30 text-green-500 text-[8px] uppercase px-1 py-0.5 rounded font-bold">Confirmado</span>}
+                                                        </div>
+                                                        
+                                                        {pago.estado === 'pendiente' && (
+                                                            <div className="flex gap-4 opacity-0 group-hover/item:opacity-100 transition-opacity items-center">
+                                                                <button type="button" onClick={() => handleApprovePago(pago.id)} className="text-green-600 hover:text-green-400" title="Confirmar Pago"><CheckIcon /></button>
+                                                                <button type="button" onClick={() => setRejectDialog({ isOpen: true, updateId: pago.id })} className="text-red-500 hover:text-red-400" title="Rechazar Pago"><XMarkIcon /></button>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    
+                                                    <p className="text-xl font-bold text-white mt-1">${pago.monto?.toFixed(2) || '0.00'}</p>
+                                                    <p className="text-sm text-zinc-300 mt-1">{pago.descripcion}</p>
+                                                    
+                                                    {pago.comprobante_url && (
+                                                        <div className="mt-3">
+                                                            <span className="inline-flex items-center text-[10px] bg-zinc-900 border border-zinc-800 px-3 py-1.5 text-blue-400 uppercase tracking-widest rounded">
+                                                                <DocumentIcon /> Comprobante Adjunto
+                                                            </span>
+                                                            <a href={pago.comprobante_url} target="_blank" rel="noreferrer" className="ml-2 text-[10px] text-zinc-500 hover:text-white underline">Ver</a>
+                                                        </div>
+                                                    )}
+
+                                                    {pago.estado === 'rechazado' && pago.motivo_rechazo && (
+                                                        <div className="mt-3 bg-red-950/30 border border-red-900 p-2 text-xs text-red-400 rounded-lg">
+                                                            <strong className="uppercase text-[10px] tracking-widest block mb-1">Motivo de Rechazo:</strong>{pago.motivo_rechazo}
                                                         </div>
                                                     )}
                                                 </div>
-                                                <p className="text-sm text-zinc-300 mt-1">{u.descripcion}</p>
-                                                {u.file_url && (
-                                                    <a href={u.file_url} target="_blank" rel="noreferrer" className="inline-flex items-center text-[10px] bg-zinc-900 border border-zinc-800 px-3 py-1.5 mt-3 text-blue-400 hover:bg-zinc-800 uppercase tracking-widest transition-colors">
-                                                        <DocumentIcon /> {u.file_name}
-                                                    </a>
-                                                )}
-                                            </div>
-                                        ))
+                                            ))
+                                        ) : (
+                                            caseUpdates.filter(u => u.estado_aprobacion === 'aprobado' || !u.estado_aprobacion).length === 0 ? <p className="text-zinc-600 text-sm italic">El historial visible está vacío.</p> :
+                                            caseUpdates.filter(u => u.estado_aprobacion === 'aprobado' || !u.estado_aprobacion).map((u) => (
+                                                <div key={u.id} className="relative pl-6 border-l border-zinc-800 group/item">
+                                                    <div className="absolute w-2 h-2 bg-zinc-700 rounded-full -left-[5px] top-1.5 ring-4 ring-black"></div>
+                                                    <div className="flex justify-between items-start">
+                                                        <p className="text-[10px] text-zinc-600 font-mono mb-1">{new Date(u.created_at).toLocaleString()}</p>
+                                                        {activeCaseHistory.estado !== 'cerrado' && (
+                                                            <div className="flex gap-3 opacity-0 group-hover/item:opacity-100 transition-opacity">
+                                                                <button type="button" onClick={() => { setEditingUpdate(u); setUpdateDesc(u.descripcion); }} className="text-zinc-600 hover:text-white transition-colors" title="Editar"><PencilIcon /></button>
+                                                                <button type="button" onClick={(e) => { e.stopPropagation(); handleDeleteUpdate(u); }} className="text-zinc-600 hover:text-red-500 transition-colors" title="Eliminar"><TrashIcon /></button>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    <p className="text-sm text-zinc-300 mt-1">{u.descripcion}</p>
+                                                    {u.file_url && (
+                                                        <a href={u.file_url} target="_blank" rel="noreferrer" className="inline-flex items-center text-[10px] bg-zinc-900 border border-zinc-800 px-3 py-1.5 mt-3 text-blue-400 hover:bg-zinc-800 uppercase tracking-widest transition-colors">
+                                                            <DocumentIcon /> {u.file_name}
+                                                        </a>
+                                                    )}
+                                                </div>
+                                            ))
+                                        )
                                     }
                                 </div>
-                                {activeCaseHistory.estado !== 'cerrado' && (
+                                {!isContador && activeCaseHistory.estado !== 'cerrado' && (
                                     <div className="p-4 bg-zinc-950 border-t border-zinc-900 flex-shrink-0">
                                         <form onSubmit={handleAddOrEditUpdate} className="flex flex-col gap-3">
                                             {editingUpdate && <div className="text-[10px] text-yellow-500 uppercase font-black tracking-widest px-2">Modificando Registro... <button type="button" onClick={() => {setEditingUpdate(null); setUpdateDesc('');}} className="ml-4 text-zinc-500 hover:text-white">Cancelar</button></div>}

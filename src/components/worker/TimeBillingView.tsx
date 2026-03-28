@@ -85,7 +85,7 @@ const calculateLayout = (entries: TimeEntry[]) => {
         return { ...e, start: h + m, end: h + m + (e.horas || 0) };
     }).sort((a, b) => a.start - b.start);
     let layout: Record<string, { width: string; left: string }> = {};
-    let columns: TimeEntry[][] = []; let lastEventEnding: number | null = null;
+    let columns: any[][] = []; let lastEventEnding: number | null = null;
     const packEvents = () => { const numCols = columns.length; columns.forEach((col, colIdx) => { col.forEach(ev => { layout[ev.id] = { width: `${100 / numCols}%`, left: `${(100 / numCols) * colIdx}%` }; }); }); };
     events.forEach(ev => {
         if (lastEventEnding !== null && ev.start >= lastEventEnding) { packEvents(); columns = []; lastEventEnding = null; }
@@ -106,6 +106,7 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
   const [currentUserProfile, setCurrentUserProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState<{ date: string; hour: number } | null>(null);
@@ -134,7 +135,6 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
       const { data: clients } = await supabase.from('profiles').select('*').eq('rol', 'cliente');
       setClientProfiles(clients || []);
 
-      // Como trabajador, puede que solo vea los casos asignados, pero permitiremos ver todos los que apliquen
       const { data: allCases } = await supabase.from('cases').select('*');
       setCases(allCases || []);
       
@@ -147,7 +147,6 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
     const startOfWeek = getStartOfWeek(currentDate);
     const endOfWeek = new Date(startOfWeek); endOfWeek.setDate(startOfWeek.getDate() + 6);
     
-    // Filtro estricto para el trabajador actual
     const { data } = await supabase.from('time_entries')
         .select('*, profiles(primer_nombre, primer_apellido, rol, color_perfil), cases(titulo, cliente_id)')
         .eq('perfil_id', profile.id)
@@ -173,9 +172,7 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
 
   const handleSaveEntry = async (e: React.FormEvent) => {
     e.preventDefault();
-    const finalDescription = billingMode === 'costos_fijos'
-      ? `Costo fijo #${fixedCostOption || '1'}`
-      : taskDescription;
+    const finalDescription = billingMode === 'costos_fijos' ? `Costo fijo #${fixedCostOption || '1'}` : taskDescription;
 
     if (!selectedSlot || !selectedCaseId || !finalDescription || hoursWorked <= 0 || !currentUserProfile) return;
     setActionLoading(true);
@@ -221,6 +218,33 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
     });
   };
 
+  // --- LÓGICA DE DRAG & DROP ---
+  const handleDragStart = (e: React.DragEvent, entry: TimeEntry) => {
+      e.dataTransfer.setData('text/plain', entry.id.toString());
+      setTimeout(() => setIsDragging(true), 0);
+  };
+
+  const handleDragEnd = () => {
+      setIsDragging(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent, date: string, hour: number) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const entryId = e.dataTransfer.getData('text/plain');
+    if (!entryId) return;
+
+    setTimeEntries(prev => prev.map(entry => entry.id === entryId ? { ...entry, fecha_tarea: date, hora_inicio: `${String(hour).padStart(2, '0')}:00:00` } : entry));
+    try {
+      const { error } = await supabase.from('time_entries').update({ fecha_tarea: date, hora_inicio: `${String(hour).padStart(2, '0')}:00:00` }).eq('id', entryId);
+      if (error) throw error;
+      await fetchWeekEntries(currentUserProfile);
+    } catch (err: unknown) {
+      if (err instanceof Error) alert(`Error al mover: ${err.message}`);
+      fetchWeekEntries(currentUserProfile);
+    }
+  };
+
   const getTimeBillingBadge = (hours: number) => {
     if (hours >= 1.5) return { label: '100%', color: 'bg-green-600' };
     if (hours >= 1.0) return { label: '75%', color: 'bg-yellow-500 text-black' };
@@ -228,7 +252,7 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
     return { label: '25%', color: 'bg-red-500' };
   };
 
-  // --- LÓGICA DE SUGERENCIAS PARA CASOS PREDETERMINADOS ---
+  // --- SUGERENCIAS ---
   const selectedCaseObj = cases.find(c => c.id === selectedCaseId);
   const presetRateMatch = selectedCaseObj?.descripcion.match(/Precio:\s*\$([\d.]+)/);
   const suggestedRate = presetRateMatch ? parseFloat(presetRateMatch[1]) : null;
@@ -279,7 +303,11 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
                 <div className="relative w-full h-full" onDragOver={(e) => e.preventDefault()}>
                   <div className="grid" style={{ gridTemplateRows: `repeat(${hours.length}, minmax(60px, auto))` }}>
                     {hours.map((hour, hourIndex) => (
-                      <div key={hourIndex} className="h-[60px] border-b border-zinc-800 hover:bg-zinc-900/50 cursor-pointer transition-colors" onClick={() => openNewEntryModal(dayStr, hour)}></div>
+                      <div key={hourIndex} className="h-[60px] border-b border-zinc-800 hover:bg-zinc-900/50 cursor-pointer transition-colors" 
+                           onClick={() => openNewEntryModal(dayStr, hour)}
+                           onDrop={(e) => handleDrop(e, dayStr, hour)}
+                           onDragOver={(e) => e.preventDefault()}>
+                      </div>
                     ))}
                   </div>
 
@@ -292,9 +320,18 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
                         const profileColor = entry.profiles?.color_perfil || '#3b82f6';
 
                         return (
-                          <div key={entry.id} className="absolute p-2 bg-black/60 backdrop-blur-md border border-white/10 shadow-xl cursor-pointer z-10 hover:bg-black/80 transition-colors overflow-hidden flex flex-col justify-start group rounded-lg pointer-events-auto" style={{ top: `${top}px`, height: `${height}px`, left: `calc(${left} + 2px)`, width: `calc(${width} - 4px)`, borderLeft: `4px solid ${profileColor}` }} onClick={(e) => { e.stopPropagation(); openEditEntryModal(entry); }}>
+                          <div key={entry.id} 
+                               draggable={true}
+                               onDragStart={(e) => handleDragStart(e, entry)}
+                               onDragEnd={handleDragEnd}
+                               className={`absolute p-2 bg-black/60 backdrop-blur-md border border-white/10 shadow-xl cursor-move z-10 hover:bg-black/80 transition-colors overflow-hidden flex flex-col justify-start group ${isDragging ? 'pointer-events-none' : 'pointer-events-auto'} rounded-lg`} 
+                               style={{ top: `${top}px`, height: `${height}px`, left: `calc(${left} + 2px)`, width: `calc(${width} - 4px)`, borderLeft: `4px solid ${profileColor}` }} 
+                               onClick={(e) => { e.stopPropagation(); openEditEntryModal(entry); }}>
                             <div className="flex items-center justify-between gap-2 mb-1">
                               <p className="font-bold text-white text-[10px] uppercase tracking-wider truncate" style={{ color: profileColor }}>{entry.cases?.titulo}</p>
+                              <span className={`text-[8px] px-2 py-1 rounded-full font-black ${getTimeBillingBadge(entry.horas).color}`}>
+                                {getTimeBillingBadge(entry.horas).label}
+                              </span>
                             </div>
                             <p className="text-zinc-300 text-[9px] leading-tight line-clamp-2">{entry.descripcion_tarea}</p>
                             {entry.estado === 'cobrado' && <span className="mt-1 text-[8px] text-green-400 font-black tracking-widest uppercase">COBRADO</span>}
@@ -434,7 +471,7 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
               <h2 className="text-xl font-bold text-white mb-4 italic tracking-widest uppercase">{confirmDialog.title}</h2>
               <p className="text-zinc-400 mb-8">{confirmDialog.message}</p>
               <div className="flex justify-center gap-4">
-                  <button onClick={() => setConfirmDialog({ ...confirmDialog, isOpen: false })} className="py-2 px-6 text-zinc-400 hover:text-white transition-colors text-[10px] uppercase font-bold tracking-widest border border-white/10 rounded-xl">Cancelar</button>
+                  <button onClick={() => setConfirmDialog({ ...confirmDialog, isOpen: false })} className="py-2 px-6 text-zinc-400 hover:text-white transition-colors text-[10px] uppercase font-bold tracking-widest border border-white/10 rounded-xl hover:bg-white/5">Cancelar</button>
                   <button onClick={() => { confirmDialog.onConfirm(); setConfirmDialog({ ...confirmDialog, isOpen: false }); }} disabled={actionLoading} className="bg-red-600/80 backdrop-blur-md shadow-lg text-white font-bold py-2 px-6 hover:bg-red-500 transition-colors uppercase tracking-widest text-[10px] disabled:opacity-50 rounded-xl">Confirmar</button>
               </div>
           </div>

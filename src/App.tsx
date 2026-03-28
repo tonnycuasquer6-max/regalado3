@@ -6,6 +6,7 @@ import ClientDashboard from './components/client/ClientDashboard';
 import AdminDashboard from './components/admin/AdminDashboard';
 import WorkerDashboard from './components/worker/WorkerDashboard';
 import AccessDenied from './components/AccessDenied';
+import Contador from './components/Contador';
 
 const LoadingScreen: React.FC<{ message?: string }> = ({ message = "Cargando Portal Seguro..." }) => (
     <div className="flex items-center justify-center h-screen bg-black">
@@ -73,13 +74,15 @@ const App: React.FC = () => {
   const renderDashboard = () => {
     if (!session) return null;
 
-    switch (userRole) {
+    switch (userRole?.toLowerCase()) {
       case 'admin':
         return <AdminDashboard session={session} />;
       case 'trabajador':
         return <WorkerDashboard session={session} />;
       case 'cliente':
         return <ClientDashboard key={session.user.id} session={session} />;
+      case 'contadora':
+        return <Contador />;
       default:
         return <AccessDenied />;
     }

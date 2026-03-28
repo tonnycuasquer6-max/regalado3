@@ -3,7 +3,7 @@ import type { Session } from '@supabase/supabase-js';
 import { supabase } from '../../services/supabaseClient';
 
 // Vistas importadas
-import TimeBillingMaestro from '../admin/TimeBillingMaestro';
+import TimeBillingView from './TimeBillingView';
 import ExpensesView from './ExpensesView';
 import WorkerProfile from './WorkerProfile'; 
 
@@ -827,7 +827,7 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
         switch (activeView) {
             case 'CLIENTS': return <WorkerClientsView session={session} userRole={userRole} />;
             case 'ASSIGNED_CASES': return <WorkerAssignedCasesView session={session} />;
-            case 'TIME_BILLING': return <TimeBillingMaestro onCancel={() => handleMenuClick('HOME')} />;
+            case 'TIME_BILLING': return <TimeBillingView session={session} onCancel={() => handleMenuClick('HOME')} />;
             case 'EXPENSES': return <ExpensesView />;
             case 'CHAT': return <WorkerChatView session={session} />;
             case 'PROFILE': return <WorkerProfile session={session} onCancel={() => handleMenuClick('HOME')} />;
@@ -844,7 +844,7 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
                 .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
             `}</style>
             
-            <header className="flex justify-between items-center p-6 bg-black sticky top-0 z-[90] border-b border-zinc-900/50">
+            <header className="flex justify-between items-center p-6 bg-black sticky top-0 z-50 border-b border-zinc-900/50">
                 <button onClick={() => setMobileMenuOpen(true)} className="md:hidden text-zinc-400 hover:text-white">
                     <MenuIcon />
                 </button>
@@ -880,8 +880,8 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
 
                         {notificationsOpen && (
                             <>
-                                <div className="fixed inset-0 z-[95]" onClick={() => setNotificationsOpen(false)}></div>
-                                <div className="absolute right-0 mt-4 w-80 bg-black/40 backdrop-blur-3xl border border-white/10 shadow-2xl shadow-black rounded-2xl py-2 z-[100] animate-in fade-in slide-in-from-top-3 duration-300 overflow-hidden">
+                                <div className="fixed inset-0 z-40" onClick={() => setNotificationsOpen(false)}></div>
+                                <div className="absolute right-0 mt-4 w-80 bg-black/40 backdrop-blur-3xl border border-white/10 shadow-2xl shadow-black rounded-2xl py-2 z-50 animate-in fade-in slide-in-from-top-3 duration-300 overflow-hidden">
                                     <div className="p-5 border-b border-white/5">
                                         <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-black">Notificaciones Recientes</p>
                                     </div>
@@ -927,8 +927,8 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
 
                         {profileMenuOpen && (
                             <>
-                                <div className="fixed inset-0 z-[95]" onClick={() => setProfileMenuOpen(false)}></div>
-                                <div className="absolute right-0 mt-4 w-64 bg-black/40 backdrop-blur-3xl border border-white/10 shadow-2xl shadow-black rounded-2xl py-2 z-[100] animate-in fade-in slide-in-from-top-3 duration-300 overflow-hidden">
+                                <div className="fixed inset-0 z-40" onClick={() => setProfileMenuOpen(false)}></div>
+                                <div className="absolute right-0 mt-4 w-64 bg-black/40 backdrop-blur-3xl border border-white/10 shadow-2xl shadow-black rounded-2xl py-2 z-50 animate-in fade-in slide-in-from-top-3 duration-300 overflow-hidden">
                                     <div className="p-5 border-b border-white/5">
                                         <p className="text-[10px] text-zinc-500 uppercase tracking-widest mb-2 font-black">Sesión activa</p>
                                         <p className="text-sm font-bold text-white truncate mb-1">{session.user.email}</p>
@@ -974,7 +974,7 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
                 </div>
             )}
 
-            <main className="flex-grow flex flex-col relative">
+            <main className="flex-grow flex flex-col relative z-10">
                 {activeView === 'HOME' ? (
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                         <div className="text-center font-black text-6xl relative h-20 w-full flex items-center justify-center">
