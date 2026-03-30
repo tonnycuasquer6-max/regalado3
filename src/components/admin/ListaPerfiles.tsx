@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback, Fragment, useRef } from 'react';
 import { supabase } from '../../services/supabaseClient';
 import { PencilIcon, TrashIcon, SearchIcon } from '../shared/Icons';
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
 
 const PlusCircleIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 pointer-events-none"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v6m3-3H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
 const EyeIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 pointer-events-none"><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>;
@@ -82,7 +84,8 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; isCo
     const fetchProfiles = useCallback(async () => {
         setLoading(true);
         const { data } = await supabase.from('profiles').select('*').eq('categoria_usuario', role);
-        setProfiles(data ? data.filter(p => p.estado_aprobacion !== 'pendiente') : []);
+        // Filtramos pendientes y eliminados para que no aparezcan
+        setProfiles(data ? data.filter(p => p.estado_aprobacion !== 'pendiente' && p.estado_aprobacion !== 'eliminado') : []);
         setLoading(false);
     }, [role]);
 
@@ -109,26 +112,116 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; isCo
         setActionLoading(false); 
     };
     
+    // --- LÓGICA DE BORRADO DURO (HARD DELETE) Y BACKUP DE ARCHIVOS ---
     const handleDeleteProfile = async () => { 
         if (!profileToDelete) return; 
         setConfirmDialog({
             isOpen: true,
-            title: '¿ELIMINAR PERFIL?',
-            message: 'Esta acción no se puede deshacer. Se borrarán sus asignaciones y horas registradas.',
+            title: role === 'cliente' ? '¿ELIMINAR CLIENTE Y DESCARGAR BACKUP?' : '¿ELIMINAR PERFIL DE SUPABASE?',
+            message: role === 'cliente' 
+                ? 'Se descargará un archivo ZIP con todos los documentos de sus casos, y luego se borrará toda su información del sistema permanentemente.'
+                : 'Se borrará absolutamente TODO su rastro (asignaciones, horas, gastos). Los documentos que subió se mantendrán en el caso pero sin su nombre.',
             onConfirm: async () => {
                 setActionLoading(true); 
-                await supabase.from('asignaciones_casos').delete().eq('abogado_id', profileToDelete.id);
-                await supabase.from('peticiones_acceso').delete().eq('trabajador_id', profileToDelete.id);
-                await supabase.from('time_entries').delete().eq('perfil_id', profileToDelete.id);
+                
+                try {
+                    if (role === 'cliente') {
+                        
+                        // 1. LÓGICA DE BACKUP ZIP ANTES DE BORRAR
+                        try {
+                            const clientFolderName = `${profileToDelete.primer_nombre}_${profileToDelete.primer_apellido}`.replace(/[^a-zA-Z0-9]/g, '_');
+                            const zip = new JSZip();
+                            const clientFolder = zip.folder(clientFolderName);
 
-                const { error } = await supabase.from('profiles').delete().eq('id', profileToDelete.id); 
-                if (error) {
-                    alert(`No se pudo eliminar del todo porque el trabajador subió documentos al sistema en el pasado. Su acceso fue revocado.`);
-                } else { 
+                            const { data: casesData } = await supabase.from('cases').select('id, titulo').eq('cliente_id', profileToDelete.id);
+                            const caseIds = casesData ? casesData.map(c => c.id) : [];
+
+                            if (caseIds.length > 0 && clientFolder) {
+                                const { data: updatesData } = await supabase.from('case_updates')
+                                    .select('file_url, file_name, case_id, cases(titulo)')
+                                    .in('case_id', caseIds)
+                                    .not('file_url', 'is', null);
+
+                                if (updatesData && updatesData.length > 0) {
+                                    for (const update of updatesData) {
+                                        const caseTitle = (update as any).cases?.titulo || `Caso_${update.case_id}`;
+                                        const safeCaseTitle = caseTitle.replace(/[^a-zA-Z0-9 ]/g, '_');
+                                        const caseFolder = clientFolder.folder(safeCaseTitle);
+                                        
+                                        if (update.file_url && caseFolder) {
+                                            try {
+                                                const response = await fetch(update.file_url);
+                                                const blob = await response.blob();
+                                                caseFolder.file(update.file_name || 'documento', blob);
+                                            } catch (fetchErr) {
+                                                console.error(`No se pudo descargar ${update.file_name}`);
+                                            }
+                                        }
+                                    }
+                                    
+                                    // Comprobar si realmente hay archivos descargados en el zip (más allá de las carpetas vacías)
+                                    const zipContent = await zip.generateAsync({ type: 'blob' });
+                                    if (zipContent.size > 100) { // Si pesa más de 100 bytes, asume que hay datos
+                                        saveAs(zipContent, `Backup_${clientFolderName}.zip`);
+                                    }
+                                }
+                            }
+                        } catch (backupError) {
+                            console.error("Error al generar el backup:", backupError);
+                            alert("Hubo un problema al generar el backup de archivos, pero se procederá con la eliminación del cliente.");
+                        }
+
+                        // 2. ELIMINACIÓN EN CASCADA DEL CLIENTE
+                        const { data: casesData } = await supabase.from('cases').select('id').eq('cliente_id', profileToDelete.id);
+                        const caseIds = casesData ? casesData.map(c => c.id) : [];
+
+                        if (caseIds.length > 0) {
+                            await supabase.from('case_updates').delete().in('case_id', caseIds);
+                            await supabase.from('time_entries').delete().in('caso_id', caseIds);
+                            await supabase.from('gastos').delete().in('caso_id', caseIds);
+                            await supabase.from('asignaciones_casos').delete().in('case_id', caseIds);
+                        }
+                        
+                        await supabase.from('pagos').delete().eq('cliente_id', profileToDelete.id);
+                        await supabase.from('peticiones_acceso').delete().eq('cliente_id', profileToDelete.id);
+                        await supabase.from('cases').delete().eq('cliente_id', profileToDelete.id);
+
+                    } else {
+                        // LÓGICA DE ELIMINACIÓN DE ABOGADO/ESTUDIANTE
+                        // Desvincular archivos para no romper la clave foránea en la línea de tiempo (los archivos se vuelven "anónimos")
+                        await supabase.from('case_updates').update({ perfil_id: null }).eq('perfil_id', profileToDelete.id);
+                        
+                        // Eliminar asignaciones y permisos
+                        await supabase.from('asignaciones_casos').delete().eq('abogado_id', profileToDelete.id);
+                        await supabase.from('peticiones_acceso').delete().eq('trabajador_id', profileToDelete.id);
+                        
+                        // Eliminar Time Billing (Horas trabajadas por este abogado)
+                        await supabase.from('time_entries').delete().eq('perfil_id', profileToDelete.id);
+                        await supabase.from('gastos').delete().eq('perfil_id', profileToDelete.id);
+                    }
+
+                    // 3. Borrado definitivo en Supabase
+                    const { error } = await supabase.from('profiles').delete().eq('id', profileToDelete.id); 
+                    
+                    if (error) {
+                        alert(`Error de Supabase al borrar: ${error.message}\nSe procederá a desactivar la cuenta en su lugar.`);
+                        // Fallback Soft Delete si Supabase bloquea
+                        await supabase.from('profiles').update({ 
+                            estado_aprobacion: 'eliminado', 
+                            categoria_usuario: 'eliminado',
+                            rol: 'inactivo' 
+                        }).eq('id', profileToDelete.id);
+                    }
+                    
+                    // Quitamos al usuario de la lista visible de inmediato
                     setProfiles(prev => prev.filter(p => p.id !== profileToDelete.id)); 
+
+                } catch (error) {
+                    console.error("Error eliminando perfil:", error);
+                } finally {
+                    setProfileToDelete(null); 
+                    setActionLoading(false); 
                 }
-                setProfileToDelete(null); 
-                setActionLoading(false); 
             }
         });
     };
