@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, Fragment } from 'react';
+import { createPortal } from 'react-dom';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from '../../services/supabaseClient';
 import { CaseItem, CaseUpdate, Profile, TimeEntry, Expense } from '../../types';
@@ -8,6 +9,22 @@ declare global {
   interface Window {
     payphone: any;
   }
+}
+
+// --- HOOK DE MEMORIA CACHÉ GLOBAL ---
+function useSessionState<T>(key: string, initialValue: T): [T, React.Dispatch<React.SetStateAction<T>>] {
+    const [state, setState] = useState<T>(() => {
+        try {
+            const item = sessionStorage.getItem(key);
+            return item ? JSON.parse(item) : initialValue;
+        } catch (error) {
+            return initialValue;
+        }
+    });
+    useEffect(() => {
+        sessionStorage.setItem(key, JSON.stringify(state));
+    }, [key, state]);
+    return [state, setState];
 }
 
 // --- Iconos ---
@@ -25,13 +42,15 @@ const scrollbarStyle = "overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-s
 
 const Modal: React.FC<{ isOpen: boolean; onClose: () => void; children: React.ReactNode; preventClose?: boolean }> = ({ isOpen, onClose, children, preventClose = false }) => {
     if (!isOpen) return null;
-    return (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 font-mono">
+    return createPortal(
+        // Z-INDEX GIGANTE PARA QUE NUNCA QUEDE DEBAJO DEL MENÚ
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-sm z-[9999999] flex items-center justify-center p-4 font-mono">
             <div className="bg-black/80 backdrop-blur-xl border border-white/10 shadow-2xl w-full max-w-2xl relative overflow-hidden p-8 max-h-[90vh] overflow-y-auto rounded-2xl">
                 {!preventClose && <button onClick={onClose} className="absolute top-4 right-4 text-zinc-500 hover:text-white">X</button>}
                 {children}
             </div>
-        </div>
+        </div>,
+        document.body
     );
 };
 
@@ -46,6 +65,11 @@ const ClientCasesView: React.FC<{ session: Session }> = ({ session }) => {
     const [loading, setLoading] = useState(true);
     const [loadingHistory, setLoadingHistory] = useState(false);
 
+    // Flujo de Abonos
+    const [abonarCase, setAbonarCase] = useState<any | null>(null);
+    const [customAmount, setCustomAmount] = useState<string>('');
+
+    // Flujo de Pago
     const [payMode, setPayMode] = useState<'transferencia' | 'payphone' | null>(null);
     const [selectedUpdateForPay, setSelectedUpdateForPay] = useState<any>(null);
     const [payAmount, setPayAmount] = useState<string>('');
@@ -87,7 +111,7 @@ const ClientCasesView: React.FC<{ session: Session }> = ({ session }) => {
                                 clientTransactionId: `PAGO-${Date.now()}`
                             });
                         },
-                        onComplete: function(model: any, actions: any) {
+                        onComplete: function(model: any) {
                             handlePayPhoneSuccess(model);
                         }
                     }).render('#pp-button-container');
@@ -101,8 +125,10 @@ const ClientCasesView: React.FC<{ session: Session }> = ({ session }) => {
 
     const handlePayPhoneSuccess = async (model: any) => {
         setActionLoading(true);
+        const currentCaseId = abonarCase?.id || activeCaseHistory?.id;
+
         const { error } = await supabase.from('pagos').insert({
-            caso_id: activeCaseHistory?.id,
+            caso_id: currentCaseId,
             cliente_id: session.user.id,
             monto: parseFloat(payAmountRef.current),
             descripcion: `${payDescRef.current} (Auth: ${model.authorizationCode})`,
@@ -112,9 +138,8 @@ const ClientCasesView: React.FC<{ session: Session }> = ({ session }) => {
         });
         
         if (!error) {
-            setPayMode(null);
-            setPayAmount('');
-            setPayDesc('');
+            setPayMode(null); setPayAmount(''); setPayDesc(''); setAbonarCase(null);
+            fetchCases();
             if(activeCaseHistory) openCaseHistory(activeCaseHistory);
             alert("¡Pago procesado exitosamente!");
         } else {
@@ -123,30 +148,38 @@ const ClientCasesView: React.FC<{ session: Session }> = ({ session }) => {
         setActionLoading(false);
     };
 
-    useEffect(() => {
-        const fetchCases = async () => {
-            setLoading(true);
-            const { data } = await supabase.from('cases').select('*').eq('cliente_id', session.user.id).order('created_at', { ascending: false });
-            setCases(data || []);
-            setLoading(false);
-        };
-        fetchCases();
+    const fetchCases = useCallback(async () => {
+        setLoading(true);
+        const { data } = await supabase.from('cases').select('*').eq('cliente_id', session.user.id).order('created_at', { ascending: false });
+        if (data) {
+            const caseIds = data.map(c => c.id);
+            const { data: pagos } = await supabase.from('pagos').select('*').in('caso_id', caseIds);
+            setCasePagos(pagos || []);
+            setCases(data);
+        }
+        setLoading(false);
     }, [session.user.id]);
+
+    useEffect(() => { fetchCases(); }, [fetchCases]);
 
     const openCaseHistory = async (caso: CaseItem) => {
         setActiveCaseHistory(caso);
         setLoadingHistory(true);
         const { data: updatesData } = await supabase.from('case_updates').select('*').eq('case_id', caso.id).eq('estado_aprobacion', 'aprobado').order('created_at', { ascending: false });
-        const { data: pagosData } = await supabase.from('pagos').select('*').eq('caso_id', caso.id).order('created_at', { ascending: false });
-        
         setCaseUpdates((updatesData as CaseUpdate[]) || []);
-        setCasePagos(pagosData || []);
         setLoadingHistory(false);
+    };
+
+    const handlePercentageAbono = (pct: number, remaining: number) => {
+        const amt = remaining * (pct / 100);
+        setPayAmount(amt.toFixed(2));
+        setPayDesc(`Abono del ${pct}% para el caso: ${abonarCase.titulo}`);
     };
 
     const handleSubmitTransferencia = async (e: React.FormEvent) => {
         e.preventDefault();
-        if(!payAmount || !payDesc || !payFile || !activeCaseHistory) return;
+        const currentCaseId = abonarCase?.id || activeCaseHistory?.id;
+        if(!payAmount || !payDesc || !payFile || !currentCaseId) return;
         setActionLoading(true);
 
         let fileUrl = null;
@@ -159,7 +192,7 @@ const ClientCasesView: React.FC<{ session: Session }> = ({ session }) => {
         }
 
         const { error } = await supabase.from('pagos').insert({
-            caso_id: activeCaseHistory.id,
+            caso_id: currentCaseId,
             cliente_id: session.user.id,
             monto: parseFloat(payAmount),
             descripcion: payDesc,
@@ -168,12 +201,9 @@ const ClientCasesView: React.FC<{ session: Session }> = ({ session }) => {
         });
 
         if(!error) {
-            setPayMode(null);
-            setSelectedUpdateForPay(null);
-            setPayAmount('');
-            setPayDesc('');
-            setPayFile(null);
-            openCaseHistory(activeCaseHistory);
+            setPayMode(null); setAbonarCase(null); setPayAmount(''); setPayDesc(''); setPayFile(null);
+            fetchCases();
+            if (activeCaseHistory) openCaseHistory(activeCaseHistory);
         } else {
             alert("Error al registrar pago: " + error.message);
         }
@@ -182,7 +212,7 @@ const ClientCasesView: React.FC<{ session: Session }> = ({ session }) => {
 
     const timelineItems = [
         ...caseUpdates.map(u => ({ ...u, _type: 'update' })),
-        ...casePagos.map(p => ({ ...p, _type: 'pago' }))
+        ...casePagos.filter(p => p.caso_id === activeCaseHistory?.id).map(p => ({ ...p, _type: 'pago' }))
     ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
     if (loading) return <div className="text-center p-12 text-zinc-500 animate-pulse font-mono">Cargando tus casos...</div>;
@@ -194,26 +224,97 @@ const ClientCasesView: React.FC<{ session: Session }> = ({ session }) => {
                 <div className="p-8 border border-dashed border-zinc-900 text-center text-zinc-600 text-xs tracking-widest uppercase">No tienes casos registrados actualmente.</div>
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {cases.map(c => (
-                        <div key={c.id} onClick={() => openCaseHistory(c)} className="bg-black/60 backdrop-blur-md border border-white/10 p-6 hover:border-white/30 transition-colors cursor-pointer group relative rounded-xl shadow-lg">
-                            <span className={`absolute top-4 right-4 text-[8px] font-black uppercase px-2 py-1 rounded ${c.estado === 'cerrado' ? 'bg-red-950/50 text-red-500' : 'bg-zinc-900 text-zinc-400'}`}>
-                                {c.estado}
-                            </span>
-                            <h3 className="text-lg font-bold text-white mb-2 group-hover:text-blue-400 transition-colors pr-16">{c.titulo}</h3>
-                            <p className="text-xs text-zinc-500 line-clamp-2">{c.descripcion}</p>
-                            <p className="text-[10px] text-zinc-600 mt-4 tracking-widest uppercase font-bold">Ver Línea de Tiempo ›</p>
-                        </div>
-                    ))}
+                    {cases.map(c => {
+                        const priceMatch = c.descripcion.match(/Precio:\s*\$([\d.]+)/);
+                        const totalPrice = priceMatch ? parseFloat(priceMatch[1]) : 0;
+                        
+                        // FILTRO PARA OCULTAR EL TIEMPO ESTIMADO DE LA TARJETA
+                        const cleanDesc = c.descripcion.replace(/Tiempo estimado:\s*[\d.]+h\s*/g, '');
+
+                        const approvedPayments = casePagos.filter(p => p.caso_id === c.id && p.estado === 'aprobado');
+                        const totalPaid = approvedPayments.reduce((acc, p) => acc + (p.monto || 0), 0);
+                        const remaining = Math.max(0, totalPrice - totalPaid);
+
+                        return (
+                            <div key={c.id} className="bg-black/60 backdrop-blur-md border border-white/10 p-6 hover:border-white/30 transition-colors group relative rounded-xl shadow-lg flex flex-col">
+                                <span className={`absolute top-4 right-4 text-[8px] font-black uppercase px-2 py-1 rounded ${c.estado === 'cerrado' ? 'bg-red-950/50 text-red-500' : 'bg-zinc-900 text-zinc-400'}`}>
+                                    {c.estado}
+                                </span>
+                                <h3 className="text-lg font-bold text-white mb-2 group-hover:text-blue-400 transition-colors pr-16">{c.titulo}</h3>
+                                <p className="text-xs text-zinc-400 line-clamp-2 flex-grow">{cleanDesc}</p>
+                                
+                                <div className="mt-4 pt-4 border-t border-white/10 space-y-1">
+                                    <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-black flex justify-between">Costo Total: <span className="text-white">${totalPrice.toFixed(2)}</span></p>
+                                    <p className="text-[10px] text-green-500 uppercase tracking-widest font-black flex justify-between">Abonado: <span>${totalPaid.toFixed(2)}</span></p>
+                                    <p className="text-[10px] text-yellow-500 uppercase tracking-widest font-black flex justify-between">Restante: <span>${remaining.toFixed(2)}</span></p>
+                                </div>
+
+                                <div className="mt-4 flex justify-between items-center">
+                                    <button onClick={() => openCaseHistory(c)} className="text-[10px] text-zinc-500 hover:text-white tracking-widest uppercase font-bold transition-colors border border-zinc-800 px-3 py-1.5 rounded-lg">Ver Historial</button>
+                                    {remaining > 0 && c.estado !== 'cerrado' && (
+                                        <button onClick={() => setAbonarCase({ ...c, remaining })} className="text-[10px] bg-green-600/80 hover:bg-green-500 text-white tracking-widest uppercase font-bold transition-colors px-4 py-1.5 rounded-lg shadow-lg">
+                                            Abonar al Caso
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        )
+                    })}
                 </div>
             )}
 
-            <Modal isOpen={!!activeCaseHistory && !payMode} onClose={() => setActiveCaseHistory(null)}>
+            {/* MODAL DE ABONOS (25, 50, 75, 100) */}
+            <Modal isOpen={!!abonarCase && !payMode} onClose={() => { setAbonarCase(null); setCustomAmount(''); }}>
+                {abonarCase && (
+                    <div className="p-8 text-center flex flex-col items-center">
+                        <h2 className="text-xl font-bold uppercase tracking-widest text-white mb-2">ABONAR AL CASO</h2>
+                        <p className="text-sm font-bold text-zinc-400 mb-6">{abonarCase.titulo}</p>
+                        
+                        <div className="bg-black/40 border border-white/10 rounded-xl p-6 w-full mb-8">
+                            <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-black mb-1">SALDO RESTANTE DEL CASO</p>
+                            <p className="text-yellow-500 font-mono text-3xl font-black">${abonarCase.remaining.toFixed(2)}</p>
+                        </div>
+
+                        <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-black mb-4">SELECCIONA EL PORCENTAJE A ABONAR</p>
+                        
+                        <div className="grid grid-cols-2 gap-4 w-full mb-4">
+                            {[25, 50, 75, 100].map(pct => {
+                                const isSelected = payAmount === (abonarCase.remaining * (pct / 100)).toFixed(2);
+                                return (
+                                    <button key={pct} onClick={() => handlePercentageAbono(pct, abonarCase.remaining)} className={`py-4 rounded-xl border font-black text-sm tracking-widest transition-all ${isSelected ? 'bg-white text-black border-white shadow-lg' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-500'}`}>
+                                        {pct}%
+                                    </button>
+                                )
+                            })}
+                        </div>
+                        <button onClick={() => { setPayAmount(''); setPayDesc(`Abono manual para el caso: ${abonarCase.titulo}`); setCustomAmount('true'); }} className="w-full py-4 rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-white font-black text-sm tracking-widest transition-all mb-8">
+                            OTRO MONTO
+                        </button>
+
+                        {customAmount && (
+                            <div className="w-full mb-8 animate-in fade-in slide-in-from-top-2 duration-300">
+                                <label className="block text-[10px] font-black mb-2 uppercase tracking-[0.3em] text-zinc-500 text-left">Monto a abonar ($)</label>
+                                <input type="number" step="0.01" min="0.01" max={abonarCase.remaining} value={payAmount} onChange={(e) => setPayAmount(e.target.value)} className="w-full bg-black/50 border-b-2 border-white/20 text-white py-3 focus:outline-none focus:border-white transition-colors font-mono text-xl text-center" placeholder="0.00" />
+                            </div>
+                        )}
+
+                        <div className="flex justify-end gap-4 w-full">
+                            <button onClick={() => { setAbonarCase(null); setCustomAmount(''); setPayAmount(''); }} className="py-2 px-6 text-zinc-400 hover:text-white transition-colors font-bold uppercase text-[10px] tracking-widest">Cancelar</button>
+                            <button onClick={() => setPayMode('transferencia')} disabled={!payAmount || parseFloat(payAmount) <= 0} className="bg-green-600/80 hover:bg-green-500 text-white font-bold py-3 px-8 rounded-xl transition-colors uppercase tracking-widest text-[10px] disabled:opacity-50">Ir al Pago</button>
+                        </div>
+                    </div>
+                )}
+            </Modal>
+
+            {/* MODAL DE HISTORIAL DEL CASO */}
+            <Modal isOpen={!!activeCaseHistory && !payMode && !abonarCase} onClose={() => setActiveCaseHistory(null)}>
                 {activeCaseHistory && (
                     <div className="flex flex-col h-[85vh]">
                         <div className="mb-6 border-b border-white/10 pb-4 flex-shrink-0 flex justify-between items-start gap-4">
                             <div>
                                 <h2 className="text-xl font-bold italic tracking-widest uppercase text-white">HISTORIAL: {activeCaseHistory.titulo}</h2>
-                                <p className="text-xs text-zinc-400 mt-1">{activeCaseHistory.descripcion}</p>
+                                {/* OCULTAMOS EL TIEMPO ESTIMADO AQUÍ TAMBIÉN */}
+                                <p className="text-xs text-zinc-400 mt-1">{activeCaseHistory.descripcion.replace(/Tiempo estimado:\s*[\d.]+h\s*/g, '')}</p>
                             </div>
                         </div>
                         
@@ -230,21 +331,13 @@ const ClientCasesView: React.FC<{ session: Session }> = ({ session }) => {
                                                 <div className="absolute w-2 h-2 rounded-full -left-[5px] top-1.5 ring-4 ring-black bg-white"></div>
                                                 <p className="text-[10px] text-zinc-500 font-mono mb-1">{new Date(item.created_at).toLocaleDateString()} • {new Date(item.created_at).toLocaleTimeString()}</p>
                                                 <span className="bg-blue-900/30 text-blue-400 px-2 py-0.5 rounded text-[8px] uppercase tracking-widest font-black inline-block mb-2">Avance de Caso</span>
-                                                <p className="text-sm text-zinc-300 mt-1">{item.descripcion}</p>
+                                                {/* OCULTAMOS EL TIEMPO EN CADA DESCRIPCION SI APARECE */}
+                                                <p className="text-sm text-zinc-300 mt-1">{item.descripcion.replace(/Tiempo estimado:\s*[\d.]+h\s*/g, '')}</p>
                                                 {item.file_url && (
                                                     <a href={item.file_url} target="_blank" rel="noreferrer" className="inline-flex items-center text-[10px] bg-black/50 border border-white/10 px-3 py-2 mt-3 text-white hover:bg-white/10 uppercase tracking-widest transition-colors rounded-xl">
                                                         <DocumentIcon /> Descargar Documento
                                                     </a>
                                                 )}
-                                                
-                                                <div className="mt-4 pt-4 border-t border-white/5 flex gap-3 flex-wrap">
-                                                    <button onClick={() => { setPayMode('payphone'); setSelectedUpdateForPay(item); setPayDesc(`Pago por actualización: ${item.descripcion.substring(0,30)}...`); }} className="bg-green-600/80 hover:bg-green-500 text-white text-[9px] font-black tracking-widest uppercase px-4 py-2 rounded-lg transition-colors shadow-lg shadow-green-500/20">
-                                                        💳 PAGAR CON PAYPHONE
-                                                    </button>
-                                                    <button onClick={() => { setPayMode('transferencia'); setSelectedUpdateForPay(item); setPayDesc(`Pago por actualización: ${item.descripcion.substring(0,30)}...`); }} className="bg-blue-600/80 hover:bg-blue-500 text-white text-[9px] font-black tracking-widest uppercase px-4 py-2 rounded-lg transition-colors shadow-lg shadow-blue-500/20">
-                                                        🧾 YA PAGUÉ (SUBIR RECIBO)
-                                                    </button>
-                                                </div>
                                             </div>
                                         )
                                     } else {
@@ -265,14 +358,8 @@ const ClientCasesView: React.FC<{ session: Session }> = ({ session }) => {
                                                 <p className="text-lg font-bold text-white mt-1">${item.monto?.toFixed(2) || '0.00'}</p>
                                                 <p className="text-sm text-zinc-300 mt-1">{item.descripcion}</p>
 
-                                                {item.comprobante_url && (
-                                                    <a href={item.comprobante_url} target="_blank" rel="noreferrer" className="inline-flex items-center text-[10px] bg-black/50 border border-white/10 px-3 py-2 mt-3 text-blue-400 hover:bg-white/10 uppercase tracking-widest transition-colors rounded-xl">
-                                                        <DocumentIcon /> Ver Comprobante
-                                                    </a>
-                                                )}
-
                                                 {isRejected && item.motivo_rechazo && (
-                                                    <div className="mt-3 bg-red-950/30 border border-red-900 p-3 text-xs text-red-400 rounded-lg">
+                                                    <div className="mt-2 mb-4 bg-red-950/30 border border-red-900 p-3 text-xs text-red-400 rounded-lg">
                                                         <strong className="uppercase text-[10px] tracking-widest block mb-1">Motivo:</strong>{item.motivo_rechazo}
                                                     </div>
                                                 )}
@@ -286,7 +373,8 @@ const ClientCasesView: React.FC<{ session: Session }> = ({ session }) => {
                 )}
             </Modal>
 
-            <Modal isOpen={!!payMode} onClose={() => { setPayMode(null); setSelectedUpdateForPay(null); }}>
+            {/* MODAL DE PAGOS */}
+            <Modal isOpen={!!payMode} onClose={() => { setPayMode(null); setSelectedUpdateForPay(null); setAbonarCase(null); setCustomAmount(''); setPayAmount(''); }}>
                 <div className="p-8 flex flex-col max-h-[85vh]">
                     <div className="mb-6 border-b border-white/10 pb-4">
                         <h2 className="text-xl font-bold italic tracking-widest uppercase text-white">
@@ -320,16 +408,17 @@ const ClientCasesView: React.FC<{ session: Session }> = ({ session }) => {
                                     </div>
                                     <div>
                                         <label className="block text-[10px] font-black mb-2 uppercase tracking-[0.3em] text-zinc-500">Monto a Pagar ($)</label>
-                                        <input type="number" step="0.01" min="0.01" required value={payAmount} onChange={(e) => setPayAmount(e.target.value)} className="w-full bg-black/50 border-2 border-orange-500/50 rounded-xl text-orange-400 py-3 px-4 focus:outline-none focus:border-orange-500 transition-colors font-mono text-2xl font-bold text-center shadow-inner shadow-orange-500/10" placeholder="0.00" />
+                                        {abonarCase ? (
+                                            <input type="text" readOnly value={payAmount} className="w-full bg-black/50 border-2 border-orange-500/50 rounded-xl text-orange-400 py-3 px-4 opacity-50 cursor-not-allowed font-mono text-2xl font-bold text-center" />
+                                        ) : (
+                                            <input type="number" step="0.01" min="0.01" required value={payAmount} onChange={(e) => setPayAmount(e.target.value)} className="w-full bg-black/50 border-2 border-orange-500/50 rounded-xl text-orange-400 py-3 px-4 focus:outline-none focus:border-orange-500 transition-colors font-mono text-2xl font-bold text-center shadow-inner shadow-orange-500/10" placeholder="0.00" />
+                                        )}
                                     </div>
                                 </div>
                                 
-                                {/* CONTENEDOR DEL BOTÓN DE PAYPHONE ESTÁ AQUÍ. PAYPHONE RENDERIZARÁ SU BOTÓN ACÁ ADENTRO AUTOMÁTICAMENTE */}
                                 <div id="pp-button-container" className="w-full min-h-[50px] flex justify-center mb-4"></div>
                                 
-                                <button type="button" onClick={() => setPayMode(null)} className="w-full text-zinc-500 hover:text-white text-[10px] uppercase font-black tracking-widest px-4 py-3 transition-colors border border-white/10 rounded-xl hover:bg-white/5 mt-4">
-                                    CANCELAR Y VOLVER
-                                </button>
+                                <button type="button" onClick={() => { setPayMode(null); setAbonarCase(null); setPayAmount(''); }} className="w-full text-zinc-500 hover:text-white text-[10px] uppercase font-black tracking-widest px-4 py-3 transition-colors border border-white/10 rounded-xl hover:bg-white/5 mt-4">CANCELAR Y VOLVER</button>
                             </div>
                         ) : (
                             <form onSubmit={handleSubmitTransferencia} className="flex flex-col">
@@ -346,7 +435,11 @@ const ClientCasesView: React.FC<{ session: Session }> = ({ session }) => {
                                 <div className="space-y-6">
                                     <div>
                                         <label className="block text-[10px] font-black mb-2 uppercase tracking-[0.3em] text-zinc-500">Monto del Pago ($)</label>
-                                        <input type="number" step="0.01" min="0.01" required value={payAmount} onChange={(e) => setPayAmount(e.target.value)} className="w-full bg-transparent border-b-2 border-zinc-800 text-white py-2 focus:outline-none focus:border-zinc-500 transition-colors font-mono text-xl" placeholder="0.00" />
+                                        {abonarCase ? (
+                                            <input type="text" readOnly value={payAmount} className="w-full bg-transparent border-b-2 border-zinc-800 text-white py-2 opacity-50 font-mono text-xl" />
+                                        ) : (
+                                            <input type="number" step="0.01" min="0.01" required value={payAmount} onChange={(e) => setPayAmount(e.target.value)} className="w-full bg-transparent border-b-2 border-zinc-800 text-white py-2 focus:outline-none focus:border-zinc-500 transition-colors font-mono text-xl" placeholder="0.00" />
+                                        )}
                                     </div>
                                     <div>
                                         <label className="block text-[10px] font-black mb-2 uppercase tracking-[0.3em] text-zinc-500">Descripción / Concepto</label>
@@ -365,7 +458,7 @@ const ClientCasesView: React.FC<{ session: Session }> = ({ session }) => {
                                 </div>
 
                                 <div className="mt-8 pt-4 border-t border-white/10 flex justify-end gap-4 flex-shrink-0">
-                                    <button type="button" onClick={() => setPayMode(null)} className="text-zinc-400 hover:text-white text-[10px] uppercase font-black tracking-widest px-4 py-2 transition-colors border border-white/10 rounded-xl hover:bg-white/5">Cancelar</button>
+                                    <button type="button" onClick={() => { setPayMode(null); setAbonarCase(null); setPayAmount(''); }} className="text-zinc-400 hover:text-white text-[10px] uppercase font-black tracking-widest px-4 py-2 transition-colors border border-white/10 rounded-xl hover:bg-white/5">Cancelar</button>
                                     <button type="submit" disabled={actionLoading || !payFile} className="bg-blue-600/80 hover:bg-blue-500 text-white text-[10px] font-black uppercase tracking-widest px-6 py-2 rounded-xl transition-colors disabled:opacity-50 shadow-lg shadow-blue-500/20">
                                         {actionLoading ? 'PROCESANDO...' : 'ENVIAR COMPROBANTE'}
                                     </button>
@@ -428,21 +521,12 @@ const ClientChatView: React.FC<{ session: Session }> = ({ session }) => {
     const [clientCases, setClientCases] = useState<CaseItem[]>([]);
     const [assignments, setAssignments] = useState<Assignment[]>([]);
 
-    const [selectedContact, setSelectedContact] = useState<Profile | null>(null);
-    const [chatStep, setChatStep] = useState<'status' | 'case' | 'chat'>('status');
-    const [selectedStatus, setSelectedStatus] = useState<'abierto' | 'cerrado' | null>(null);
-    const [selectedCase, setSelectedCase] = useState<CaseItem | null>(null);
-    
-    // ESTADOS PARA NUEVO CASO
-    const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-    const [caseType, setCaseType] = useState<'custom' | 'preset' | null>(null);
-    const [newCaseTitle, setNewCaseTitle] = useState('');
-    const [newCaseDescription, setNewCaseDescription] = useState('');
-    const [presetSearch, setPresetSearch] = useState('');
-    const [presetOption, setPresetOption] = useState<number | null>(null);
-    const fixedCostOptions = Array.from({ length: 50 }, (_, i) => i + 1);
+    const [selectedContact, setSelectedContact] = useSessionState<Profile | null>('cli_chat_contact', null);
+    const [chatStep, setChatStep] = useSessionState<'status' | 'case' | 'chat'>('cli_chat_step', 'status');
+    const [selectedStatus, setSelectedStatus] = useSessionState<'abierto' | 'cerrado' | null>('cli_chat_status', null);
+    const [selectedCase, setSelectedCase] = useSessionState<CaseItem | null>('cli_chat_case', null);
 
-    const [message, setMessage] = useState('');
+    const [message, setMessage] = useSessionState('cli_chat_msg', '');
     const [messages, setMessages] = useState<any[]>([]);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -490,7 +574,7 @@ const ClientChatView: React.FC<{ session: Session }> = ({ session }) => {
     useEffect(() => {
         if (chatStep === 'chat') {
             fetchMessages();
-            const channel = supabase.channel('chat_updates').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, payload => {
+            const channel = supabase.channel('chat_updates_cli').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, payload => {
                 const newMsg = payload.new;
                 const isCurrentChat = (newMsg.sender_id === session.user.id && newMsg.receiver_id === selectedContact.id) || (newMsg.sender_id === selectedContact.id && newMsg.receiver_id === session.user.id);
                 const isCurrentCase = selectedCase ? newMsg.case_id === selectedCase.id : newMsg.case_id === null;
@@ -509,45 +593,6 @@ const ClientChatView: React.FC<{ session: Session }> = ({ session }) => {
             sender_id: session.user.id, receiver_id: selectedContact.id, case_id: selectedCase ? selectedCase.id : null, message: msgText
         }]);
         if (error) alert("Error al enviar mensaje");
-    };
-
-    const handleCreateCase = async (e: React.FormEvent) => {
-        e.preventDefault();
-        
-        let finalTitle = newCaseTitle;
-        let finalDesc = newCaseDescription;
-        
-        if (caseType === 'preset' && presetOption) {
-            const baseHours = 0.5 + presetOption * 0.1;
-            const baseRate = 30 + presetOption * 1.5;
-            const hours = Math.round(baseHours * 100) / 100;
-            const rate = Math.round((baseRate + 5) * 100) / 100;
-            
-            finalTitle = `Caso Predeterminado #${presetOption}`;
-            finalDesc = `Tiempo estimado: ${hours}h\nPrecio: $${rate}`;
-        } else if (caseType === 'custom' && (!newCaseTitle.trim() || !newCaseDescription.trim())) {
-            alert('Por favor completa el título y descripción');
-            return;
-        }
-
-        try {
-            await supabase.from('cases').insert({
-                titulo: finalTitle.trim(),
-                descripcion: finalDesc.trim(),
-                estado: 'pendiente',
-                cliente_id: session.user.id
-            });
-            setNewCaseTitle('');
-            setNewCaseDescription('');
-            setCaseType(null);
-            setPresetOption(null);
-            setIsCreateModalOpen(false);
-            setChatStep('case');
-            const { data } = await supabase.from('cases').select('*').eq('cliente_id', session.user.id);
-            if (data) setClientCases(data);
-        } catch (error) {
-            // ignore
-        }
     };
 
     const handleContactClick = (contact: Profile) => { setSelectedContact(contact); setChatStep('status'); setSelectedStatus(null); setSelectedCase(null); };
@@ -593,7 +638,7 @@ const ClientChatView: React.FC<{ session: Session }> = ({ session }) => {
                 </div>
             </div>
 
-            <div className="flex-grow flex flex-col bg-black/20 relative">
+            <div className="flex-grow flex flex-col bg-[#050505] relative">
                 {!selectedContact ? (
                     <div className="flex-grow flex items-center justify-center p-8 text-center"><p className="text-zinc-500 uppercase tracking-widest text-sm font-bold">Selecciona un contacto para iniciar</p></div>
                 ) : (
@@ -641,7 +686,6 @@ const ClientChatView: React.FC<{ session: Session }> = ({ session }) => {
                             {chatStep === 'chat' && (
                                 <div className="animate-in fade-in duration-300 flex flex-col w-full min-h-full gap-4">
                                     <div className="text-center my-4"><span className="bg-black/60 backdrop-blur-md border border-white/10 text-zinc-300 text-[9px] uppercase tracking-widest px-4 py-2 rounded-full shadow-lg">Chat sobre caso: {selectedCase?.titulo}</span></div>
-                                    
                                     {messages.length === 0 ? (
                                         <p className="text-zinc-500 text-xs italic text-center my-auto bg-black/40 backdrop-blur-md py-4 px-6 rounded-xl border border-white/5 w-fit mx-auto">Envía el primer mensaje para iniciar la conversación.</p>
                                     ) : (
@@ -673,225 +717,6 @@ const ClientChatView: React.FC<{ session: Session }> = ({ session }) => {
                     </>
                 )}
             </div>
-
-            <Modal isOpen={isCreateModalOpen} onClose={() => {setIsCreateModalOpen(false); setCaseType(null);}}>
-                <div className="p-6 border-b border-white/10 flex justify-between items-center">
-                    <h2 className="text-xl font-bold uppercase tracking-widest text-white italic">Crear nuevo caso</h2>
-                </div>
-                <div className="p-6 overflow-y-auto">
-                    {caseType ? (
-                        caseType === 'custom' ? (
-                            <form onSubmit={handleCreateCase} className="space-y-4">
-                                <div>
-                                    <label className="block text-xs font-bold text-zinc-300 uppercase tracking-widest mb-2">Título del Caso</label>
-                                    <input type="text" value={newCaseTitle} onChange={e => setNewCaseTitle(e.target.value)} placeholder="Ej: Constitución de Empresa" className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500 transition-colors" required />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-zinc-300 uppercase tracking-widest mb-2">Descripción</label>
-                                    <textarea value={newCaseDescription} onChange={e => setNewCaseDescription(e.target.value)} placeholder="Describe los detalles del caso..." className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500 transition-colors h-24 resize-none" required />
-                                </div>
-                                <div className="flex gap-3 pt-4 border-t border-white/10">
-                                    <button type="button" onClick={() => setCaseType(null)} className="flex-1 px-4 py-3 border border-white/10 hover:bg-white/5 text-zinc-300 rounded-xl uppercase text-xs font-bold tracking-widest transition-colors">Atrás</button>
-                                    <button type="submit" disabled={!newCaseTitle.trim()} className="flex-1 px-4 py-3 bg-blue-600/80 hover:bg-blue-500 text-white rounded-xl uppercase text-xs font-bold tracking-widest transition-colors">Crear Caso</button>
-                                </div>
-                            </form>
-                        ) : (
-                            <form onSubmit={handleCreateCase} className="space-y-4">
-                                <div>
-                                    <label className="block text-xs font-bold text-zinc-300 uppercase tracking-widest mb-3">Selecciona un Caso Predeterminado</label>
-                                    <input type="text" placeholder="Buscar por número..." value={presetSearch} onChange={e => setPresetSearch(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white mb-4 focus:outline-none focus:border-blue-500" />
-                                    <div className="space-y-2 max-h-64 overflow-y-auto pr-2 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:bg-zinc-700 [&::-webkit-scrollbar-thumb]:rounded-full">
-                                        {fixedCostOptions.filter(opt => opt.toString().includes(presetSearch)).map(opt => {
-                                            const baseHours = 0.5 + opt * 0.1;
-                                            const baseRate = 30 + opt * 1.5;
-                                            const hours = Math.round(baseHours * 100) / 100;
-                                            const rate = Math.round((baseRate + 5) * 100) / 100;
-                                            return (
-                                                <div key={opt} onClick={() => setPresetOption(opt)} className={`p-4 border-2 rounded-xl cursor-pointer transition-all ${presetOption === opt ? 'border-green-500 bg-green-900/20' : 'border-white/10 bg-black/50 hover:border-white/30'}`}>
-                                                    <h4 className="font-bold text-white text-sm uppercase tracking-wider mb-1">Caso Predeterminado #{opt}</h4>
-                                                    <div className="flex justify-between text-xs text-zinc-400">
-                                                        <span className="text-green-400 font-bold">Precio Sugerido: ${rate}</span>
-                                                        <span>⏱️ {hours}h</span>
-                                                    </div>
-                                                </div>
-                                            )
-                                        })}
-                                    </div>
-                                </div>
-                                <div className="flex gap-3 pt-4 border-t border-white/10">
-                                    <button type="button" onClick={() => setCaseType(null)} className="flex-1 px-4 py-3 border border-white/10 hover:bg-white/5 text-zinc-300 rounded-xl uppercase text-xs font-bold tracking-widest transition-colors">Atrás</button>
-                                    <button type="submit" disabled={!presetOption} className="flex-1 px-4 py-3 bg-green-600/80 hover:bg-green-500 text-white rounded-xl uppercase text-xs font-bold tracking-widest transition-colors">Crear Caso</button>
-                                </div>
-                            </form>
-                        )
-                    ) : (
-                        <div className="space-y-4">
-                            <p className="text-sm text-zinc-300 mb-6">Selecciona el tipo de caso que deseas crear:</p>
-                            <button onClick={() => setCaseType('custom')} className="w-full p-6 border border-white/10 hover:border-white/30 bg-black/50 hover:bg-white/5 rounded-xl transition-all text-left flex items-start gap-4">
-                                <div>
-                                    <h3 className="font-bold text-white uppercase tracking-widest text-sm mb-1">Caso Personalizado</h3>
-                                    <p className="text-zinc-400 text-xs">Crea un caso con tu propio título y descripción manual.</p>
-                                </div>
-                            </button>
-                            <button onClick={() => setCaseType('preset')} className="w-full p-6 border border-white/10 hover:border-green-500/50 bg-black/50 hover:bg-green-900/10 rounded-xl transition-all text-left flex items-start gap-4">
-                                <div>
-                                    <h3 className="font-bold text-white uppercase tracking-widest text-sm mb-1 text-green-400">Casos Predeterminados (Costos Fijos)</h3>
-                                    <p className="text-zinc-400 text-xs">Elige de una lista de 50 casos con precios y tiempos auto-calculados.</p>
-                                </div>
-                            </button>
-                        </div>
-                    )}
-                </div>
-            </Modal>
-        </div>
-    );
-};
-
-// ==========================================
-// VISTA: MI PERFIL FINANCIERO
-// ==========================================
-const ClientProfileView: React.FC<{ session: Session; profile: Profile | null }> = ({ session, profile }) => {
-    const [cases, setCases] = useState<CaseItem[]>([]);
-    const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
-    const [expenses, setExpenses] = useState<Expense[]>([]);
-    const [currentCaseIndex, setCurrentCaseIndex] = useState(0);
-    const [loading, setLoading] = useState(true);
-    const [showRecords, setShowRecords] = useState(false);
-
-    useEffect(() => {
-        const fetchData = async () => {
-            setLoading(true);
-            const { data: myCases } = await supabase.from('cases').select('*').eq('cliente_id', session.user.id).order('created_at', { ascending: false });
-            
-            if (myCases && myCases.length > 0) {
-                setCases(myCases);
-                const caseIds = myCases.map(c => c.id);
-                
-                const { data: times } = await supabase.from('time_entries').select('*').in('caso_id', caseIds).order('fecha_tarea', { ascending: false });
-                setTimeEntries(times || []);
-
-                const { data: exps } = await supabase.from('gastos').select('*').in('caso_id', caseIds);
-                setExpenses(exps || []);
-            }
-            setLoading(false);
-        };
-        fetchData();
-    }, [session.user.id]);
-
-    const handlePrevCase = () => setCurrentCaseIndex(prev => (prev > 0 ? prev - 1 : cases.length - 1));
-    const handleNextCase = () => setCurrentCaseIndex(prev => (prev < cases.length - 1 ? prev + 1 : 0));
-
-    if (loading) return <div className="text-center p-12 text-zinc-500 animate-pulse font-mono">Calculando estado de cuenta...</div>;
-
-    const currentCase = cases[currentCaseIndex];
-    const caseTimes = currentCase ? timeEntries.filter(t => t.caso_id === currentCase.id) : [];
-    const caseExps = currentCase ? expenses.filter(e => e.caso_id === currentCase.id) : [];
-
-    const totalHours = caseTimes.reduce((acc, t) => acc + (t.horas || 0), 0);
-    const totalBilling = caseTimes.reduce((acc, t) => acc + ((t.horas || 0) * (t.tarifa_personalizada || 0)), 0);
-    const totalExpenses = caseExps.reduce((acc, e) => acc + (e.monto || 0), 0);
-    const totalToPay = totalBilling + totalExpenses;
-
-    return (
-        <div className="max-w-5xl mx-auto animate-in fade-in duration-500 font-mono text-white w-full">
-            <header className="flex items-center justify-between mb-8 pb-4 border-b border-zinc-900">
-                <h1 className="text-3xl font-black uppercase tracking-tighter italic">Mi Perfil</h1>
-            </header>
-
-            {profile && (
-                <div className="bg-black/60 backdrop-blur-xl border border-white/10 p-8 flex flex-col md:flex-row items-center gap-8 mb-8 shadow-2xl rounded-2xl relative overflow-hidden">
-                    <img src={profile.foto_url || 'https://via.placeholder.com/150'} alt="Perfil" className="w-32 h-32 rounded-full border-4 border-white/20 object-cover z-10"/>
-                    <div className="text-center md:text-left z-10">
-                        <h2 className="text-3xl font-black uppercase tracking-widest">{profile.primer_nombre} {profile.primer_apellido}</h2>
-                        <p className="text-zinc-400 uppercase tracking-widest mt-1 text-sm">Cliente</p>
-                        <div className="mt-4 flex flex-col gap-1 text-xs text-zinc-500 font-mono">
-                            <p>EMAIL: <span className="text-white">{profile.email}</span></p>
-                            <p>CÉDULA: <span className="text-white">{profile.cedula || 'No registrada'}</span></p>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {cases.length === 0 ? (
-                <div className="p-8 border border-dashed border-white/10 bg-black/40 rounded-2xl text-center animate-in fade-in duration-500 text-white font-mono h-full flex flex-col items-center justify-center">
-                    <h2 className="text-3xl font-black uppercase tracking-widest mb-4">Estado Financiero</h2>
-                    <p className="text-zinc-500 text-sm tracking-widest uppercase">Próximamente disponible</p>
-                </div>
-            ) : (
-                <div className="bg-black/60 backdrop-blur-xl border border-white/10 shadow-2xl rounded-2xl p-8">
-                    <div className="flex items-center justify-between border-b border-white/10 pb-6 mb-8">
-                        {cases.length > 1 ? (
-                            <button onClick={handlePrevCase} className="p-2 text-zinc-400 hover:text-white transition-colors bg-white/5 hover:bg-white/10 border border-white/10 rounded-full"><ChevronLeftIcon /></button>
-                        ) : <div className="w-10"></div>}
-                        
-                        <div className="text-center px-4">
-                            <p className="text-[10px] font-black uppercase text-zinc-500 tracking-[0.3em] mb-1">Estado de Cuenta</p>
-                            <h3 className="text-xl font-bold tracking-widest text-white uppercase">{currentCase.titulo}</h3>
-                            {currentCase.estado === 'cerrado' && <span className="text-red-400 text-[10px] font-black uppercase tracking-widest mt-1 block">Caso Cerrado</span>}
-                        </div>
-
-                        {cases.length > 1 ? (
-                            <button onClick={handleNextCase} className="p-2 text-zinc-400 hover:text-white transition-colors bg-white/5 hover:bg-white/10 border border-white/10 rounded-full"><ChevronRightIcon /></button>
-                        ) : <div className="w-10"></div>}
-                    </div>
-
-                    <div className="bg-black/40 border border-white/10 rounded-xl p-8 mb-8 shadow-inner">
-                        <div className="flex justify-between items-center mb-6 border-b border-white/5 pb-6">
-                            <p className="text-zinc-400 uppercase tracking-widest text-sm font-bold">Total de Horas Trabajadas</p>
-                            <p className="text-white font-mono font-bold text-lg">{totalHours.toFixed(2)} hrs</p>
-                        </div>
-                        <div className="flex justify-between items-center mb-4">
-                            <p className="text-zinc-500 uppercase tracking-widest text-xs font-bold">Honorarios (Time Billing)</p>
-                            <p className="text-zinc-300 font-mono font-bold">${totalBilling.toFixed(2)}</p>
-                        </div>
-                        <div className="flex justify-between items-center mb-6">
-                            <p className="text-zinc-500 uppercase tracking-widest text-xs font-bold">Gastos Reembolsables</p>
-                            <p className="text-zinc-300 font-mono font-bold">${totalExpenses.toFixed(2)}</p>
-                        </div>
-                        <div className="border-t-2 border-dashed border-white/10 pt-8 mt-2 flex justify-between items-end">
-                            <div>
-                                <p className="text-white uppercase tracking-[0.3em] text-sm font-black">TOTAL A PAGAR</p>
-                                <p className="text-[9px] text-zinc-500 tracking-widest mt-1 uppercase font-bold">Valor acumulado a la fecha</p>
-                            </div>
-                            <p className="text-green-400 font-black text-4xl tracking-wider">${totalToPay.toFixed(2)}</p>
-                        </div>
-                    </div>
-
-                    <div className="flex justify-end">
-                        <button onClick={() => setShowRecords(!showRecords)} className="bg-white/10 text-white font-bold py-3 px-8 text-[10px] tracking-[0.2em] uppercase hover:bg-white/20 rounded-xl transition-colors shadow-lg">
-                            {showRecords ? 'OCULTAR REGISTROS' : 'VER REGISTRO DE TAREAS'}
-                        </button>
-                    </div>
-
-                    {showRecords && (
-                        <div className="mt-8 animate-in fade-in slide-in-from-top-4 duration-500 border-t border-white/10 pt-8">
-                            <p className="text-[10px] font-black uppercase text-zinc-400 tracking-[0.3em] mb-4">REGISTRO DE ACTIVIDADES</p>
-                            <div className="space-y-2">
-                                {caseTimes.length === 0 ? (
-                                    <p className="text-zinc-500 italic text-sm text-center py-8 border border-dashed border-white/10 rounded-xl bg-black/40">No hay tareas registradas.</p>
-                                ) : (
-                                    caseTimes.map((te) => {
-                                        const totalCobrar = (te.horas || 0) * (te.tarifa_personalizada || 0);
-                                        return (
-                                            <div key={te.id} className="bg-black/40 border border-white/5 rounded-xl p-4 flex flex-col gap-3">
-                                                <div className="flex justify-between items-start border-b border-white/5 pb-2">
-                                                    <p className="text-zinc-500 font-mono text-[10px]">{te.fecha_tarea}</p>
-                                                    <p className="text-green-400 font-black font-mono text-sm tracking-wider">${totalCobrar.toFixed(2)}</p>
-                                                </div>
-                                                <p className="text-zinc-300 text-sm">{te.descripcion_tarea}</p>
-                                                <div className="flex gap-6 mt-2 pt-2 border-t border-white/5">
-                                                    <p className="text-zinc-500 text-[10px] font-mono uppercase tracking-widest">TIEMPO: <span className="text-white font-bold">{te.horas} hrs</span></p>
-                                                    <p className="text-zinc-500 text-[10px] font-mono uppercase tracking-widest">TARIFA: <span className="text-white font-bold">${te.tarifa_personalizada || 0}/hr</span></p>
-                                                </div>
-                                            </div>
-                                        );
-                                    })
-                                )}
-                            </div>
-                        </div>
-                    )}
-                </div>
-            )}
         </div>
     );
 };
@@ -901,7 +726,7 @@ const ClientProfileView: React.FC<{ session: Session; profile: Profile | null }>
 // ==========================================
 const ClientDashboard: React.FC<{ session: Session }> = ({ session }) => {
     
-    const [activeView, setActiveView] = useState('HOME');
+    const [activeView, setActiveView] = useSessionState('clientActiveView', 'HOME');
     const [clientProfile, setClientProfile] = useState<Profile | null>(null);
     const [cases, setCases] = useState<CaseItem[]>([]);
     const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
@@ -1012,8 +837,6 @@ const ClientDashboard: React.FC<{ session: Session }> = ({ session }) => {
             `}</style>
 
             <div className="bg-black min-h-screen text-white flex flex-col font-sans relative">
-                
-                {/* HEADER CRISTAL */}
                 <header className="flex justify-between items-center p-6 bg-black/80 backdrop-blur-md sticky top-0 z-[90] border-b border-white/10">
                     <button onClick={() => setMobileMenuOpen(true)} className="md:hidden text-zinc-400 hover:text-white disabled:opacity-50" disabled={profileIncomplete}>
                         <MenuIcon />
@@ -1025,6 +848,7 @@ const ClientDashboard: React.FC<{ session: Session }> = ({ session }) => {
                     <nav className="hidden md:flex flex-grow justify-center gap-8 lg:gap-16 relative">
                         <button onClick={() => handleMenuClick('CASES')} className={`text-sm lg:text-base font-bold transition-colors ${activeView === 'CASES' ? 'text-white' : 'text-zinc-400 hover:text-white'}`} disabled={profileIncomplete}>Mis Casos (Actividad)</button>
                         <button onClick={() => handleMenuClick('PROFILE')} className={`text-sm lg:text-base font-bold transition-colors ${activeView === 'PROFILE' ? 'text-white' : 'text-zinc-400 hover:text-white'}`} disabled={profileIncomplete}>Métodos de Pago & Perfil</button>
+                        <button onClick={() => handleMenuClick('CHAT')} className={`text-sm lg:text-base font-bold transition-colors ${activeView === 'CHAT' ? 'text-white' : 'text-zinc-400 hover:text-white'}`} disabled={profileIncomplete}>Chat</button>
                     </nav>
 
                     <div className="flex items-center justify-end gap-6 w-32 relative">
@@ -1051,7 +875,7 @@ const ClientDashboard: React.FC<{ session: Session }> = ({ session }) => {
                                                             <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 font-mono">{new Date(n.created_at).toLocaleDateString()}</span>
                                                         </div>
                                                         <p className="text-white text-xs font-bold mt-1">Caso: {n.caso?.titulo}</p>
-                                                        <p className="text-zinc-400 text-xs mt-1 line-clamp-2">{n.descripcion}</p>
+                                                        <p className="text-zinc-400 text-xs mt-1 line-clamp-2">{n.descripcion.replace(/Tiempo estimado:\s*[\d.]+h\s*/g, '')}</p>
                                                     </div>
                                                 ))
                                             )}
@@ -1088,9 +912,8 @@ const ClientDashboard: React.FC<{ session: Session }> = ({ session }) => {
                     </div>
                 </header>
 
-                {/* MENÚ MÓVIL */}
                 {mobileMenuOpen && (
-                    <div className="fixed inset-0 bg-black/80 backdrop-blur-xl z-[100] flex flex-col font-sans p-6 animate-in fade-in zoom-in-95 duration-300">
+                    <div className="fixed inset-0 bg-black/95 backdrop-blur-sm z-[100] flex flex-col font-sans p-6 animate-in fade-in zoom-in-95 duration-300">
                         <div className="flex justify-between items-center mb-12">
                             <div className="font-serif font-bold text-2xl tracking-widest">R & R</div>
                             <button onClick={closeAllMenus} className="text-zinc-500 hover:text-white font-bold font-mono text-sm tracking-widest">CERRAR X</button>
@@ -1098,6 +921,7 @@ const ClientDashboard: React.FC<{ session: Session }> = ({ session }) => {
                         <div className="flex flex-col gap-8 text-left overflow-y-auto">
                             <button onClick={() => handleMenuClick('CASES')} className={`text-2xl font-bold text-left ${activeView === 'CASES' ? 'text-white' : 'text-zinc-400'}`}>Mis Casos (Actividad)</button>
                             <button onClick={() => handleMenuClick('PROFILE')} className={`text-2xl font-bold text-left ${activeView === 'PROFILE' ? 'text-white' : 'text-zinc-400'}`}>Mi Perfil & Pagos</button>
+                            <button onClick={() => handleMenuClick('CHAT')} className={`text-2xl font-bold text-left ${activeView === 'CHAT' ? 'text-white' : 'text-zinc-400'}`}>Chat</button>
                             <button onClick={async () => { closeAllMenus(); localStorage.removeItem('deviceToken'); await supabase.auth.signOut(); }} className="text-xl font-bold text-left text-red-500 pt-8 border-t border-zinc-900">Cerrar Sesión</button>
                         </div>
                     </div>
@@ -1171,7 +995,28 @@ const ClientDashboard: React.FC<{ session: Session }> = ({ session }) => {
                             <ClientChatView session={session} />
                         </div>
                         <div className={`${activeView === 'PROFILE' && !profileIncomplete ? 'flex-grow flex flex-col h-full' : 'hidden'}`}>
-                            <ClientProfileView session={session} profile={clientProfile} />
+                            <div className="max-w-5xl mx-auto animate-in fade-in duration-500 font-mono text-white w-full">
+                                <header className="flex items-center justify-between mb-8 pb-4 border-b border-zinc-900">
+                                    <h1 className="text-3xl font-black uppercase tracking-tighter italic">Mi Perfil & Pagos</h1>
+                                </header>
+                                {clientProfile && (
+                                    <div className="bg-black/60 backdrop-blur-xl border border-white/10 p-8 flex flex-col md:flex-row items-center gap-8 mb-8 shadow-2xl rounded-2xl relative overflow-hidden">
+                                        <img src={clientProfile.foto_url || 'https://via.placeholder.com/150'} alt="Perfil" className="w-32 h-32 rounded-full border-4 border-white/20 object-cover z-10"/>
+                                        <div className="text-center md:text-left z-10">
+                                            <h2 className="text-3xl font-black uppercase tracking-widest">{clientProfile.primer_nombre} {clientProfile.primer_apellido}</h2>
+                                            <p className="text-zinc-400 uppercase tracking-widest mt-1 text-sm">Cliente</p>
+                                            <div className="mt-4 flex flex-col gap-1 text-xs text-zinc-500 font-mono">
+                                                <p>EMAIL: <span className="text-white">{clientProfile.email}</span></p>
+                                                <p>CÉDULA: <span className="text-white">{clientProfile.cedula || 'No registrada'}</span></p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                                <div className="bg-black/60 backdrop-blur-xl border border-white/10 shadow-2xl rounded-2xl p-8 text-center animate-in fade-in duration-500">
+                                    <h2 className="text-2xl font-black uppercase tracking-widest mb-4">Estado de Cuenta Mensual</h2>
+                                    <p className="text-zinc-500 text-sm tracking-widest uppercase">Próximamente disponible un resumen detallado de tus facturas.</p>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </main>
