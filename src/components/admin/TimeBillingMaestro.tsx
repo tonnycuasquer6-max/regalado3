@@ -119,7 +119,7 @@ const NumberControl: React.FC<any> = ({ label, value, step, min, onChange, isTim
 const Modal: React.FC<{ isOpen: boolean; onClose: () => void; children: React.ReactNode }> = ({ isOpen, onClose, children }) => {
     if (!isOpen) return null;
     return createPortal(
-      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 font-mono">
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[999999] flex items-center justify-center p-4 font-mono">
         <div className="bg-black/80 backdrop-blur-xl border border-white/10 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] rounded-2xl relative">
           {children}
         </div>
@@ -151,7 +151,7 @@ const calculateLayout = (entries: TimeEntry[]) => {
 
 const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
+  const [timeEntries, setTimeEntries] = useState<any[]>([]);
   const [cases, setCases] = useState<Case[]>([]);
   const [clientProfiles, setClientProfiles] = useState<Profile[]>([]);
   const [currentUserProfile, setCurrentUserProfile] = useState<Profile | null>(null);
@@ -162,7 +162,7 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
   // --- MEMORIA CACHÉ ---
   const [isModalOpen, setIsModalOpen] = useSessionState('tb_maestro_modalOpen', false);
   const [selectedSlot, setSelectedSlot] = useSessionState<{ date: string; hour: number } | null>('tb_maestro_slot', null);
-  const [editingEntry, setEditingEntry] = useSessionState<TimeEntry | null>('tb_maestro_editEntry', null);
+  const [editingEntry, setEditingEntry] = useSessionState<any | null>('tb_maestro_editEntry', null);
   const [selectedClientId, setSelectedClientId] = useSessionState<string>('tb_maestro_client', '');
   const [selectedCaseId, setSelectedCaseId] = useSessionState<string>('tb_maestro_case', '');
   const [taskDescription, setTaskDescription] = useSessionState('tb_maestro_desc', '');
@@ -194,7 +194,6 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
     const startOfWeek = getStartOfWeek(currentDate);
     const endOfWeek = new Date(startOfWeek); endOfWeek.setDate(startOfWeek.getDate() + 6);
     
-    // SOLUCIÓN AL PROBLEMA 1: Ruta explícita para evitar choque de FK (profiles!perfil_id y cases!caso_id)
     let query = supabase.from('time_entries')
         .select('*, perfil:profiles!perfil_id(primer_nombre, primer_apellido, rol, color_perfil), caso:cases!caso_id(titulo, cliente_id)')
         .gte('fecha_tarea', toYYYYMMDD(startOfWeek))
@@ -275,7 +274,7 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
     });
   };
 
-  const handleDragStart = (e: React.DragEvent, entry: TimeEntry) => {
+  const handleDragStart = (e: React.DragEvent, entry: any) => {
       if (!isUserAdmin) {
         e.preventDefault();
         alert('Solo administrador puede arrastrar entradas.');
@@ -304,13 +303,6 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
       if (err instanceof Error) alert(`Error al mover: ${err.message}`);
       fetchWeekEntries(currentUserProfile);
     }
-  };
-
-  const getTimeBillingBadge = (hours: number) => {
-    if (hours >= 1.5) return { label: '100%', color: 'bg-green-600' };
-    if (hours >= 1.0) return { label: '75%', color: 'bg-yellow-500 text-black' };
-    if (hours >= 0.75) return { label: '50%', color: 'bg-orange-500 text-black' };
-    return { label: '25%', color: 'bg-red-500' };
   };
 
   const selectedCaseObj = cases.find(c => c.id === selectedCaseId);
@@ -378,9 +370,8 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
                         const height = entry.horas * 60;
                         const { width, left } = layout[entry.id];
                         
-                        // Utilizamos la nueva ruta segura para evitar errores de null
-                        const profileColor = (entry as any).perfil?.color_perfil || '#3b82f6';
-                        const caseTitle = (entry as any).caso?.titulo || 'Caso Desconocido';
+                        const profileColor = entry.perfil?.color_perfil || '#3b82f6';
+                        const caseTitle = entry.caso?.titulo || 'Caso Desconocido';
 
                         return (
                           <div key={entry.id} 
@@ -392,12 +383,12 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
                                onClick={(e) => { e.stopPropagation(); openEditEntryModal(entry); }}>
                             <div className="flex items-center justify-between gap-2 mb-1">
                               <p className="font-bold text-white text-[10px] uppercase tracking-wider truncate" style={{ color: profileColor }}>{caseTitle}</p>
-                              <span className={`text-[8px] px-2 py-1 rounded-full font-black ${getTimeBillingBadge(entry.horas).color}`}>
-                                {getTimeBillingBadge(entry.horas).label}
-                              </span>
                             </div>
                             <p className="text-zinc-300 text-[9px] leading-tight line-clamp-2">{entry.descripcion_tarea}</p>
-                            {entry.estado === 'cobrado' && <span className="mt-1 text-[8px] text-green-400 font-black tracking-widest uppercase">COBRADO</span>}
+                            
+                            {/* --- ESTADO EN ESPERA VS COBRADO --- */}
+                            {entry.estado === 'cobrado' && entry.estado_pago_contador === 'aprobado' && <span className="mt-1 text-[8px] text-green-400 font-black tracking-widest uppercase">COBRADO</span>}
+                            {entry.estado === 'cobrado' && entry.estado_pago_contador !== 'aprobado' && <span className="mt-1 text-[8px] text-yellow-500 font-black tracking-widest uppercase">EN ESPERA</span>}
                           </div>
                         )
                       })}
@@ -417,7 +408,7 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
                 <div>
                     <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">Trabajador</label>
                     <div className="w-full py-2 px-0 bg-transparent border-b-2 border-zinc-800 text-white opacity-70">
-                        {editingEntry ? `${(editingEntry as any).perfil?.primer_nombre} ${(editingEntry as any).perfil?.primer_apellido}` : `${currentUserProfile?.primer_nombre} ${currentUserProfile?.primer_apellido}`}
+                        {editingEntry ? `${editingEntry.perfil?.primer_nombre} ${editingEntry.perfil?.primer_apellido}` : `${currentUserProfile?.primer_nombre} ${currentUserProfile?.primer_apellido}`}
                     </div>
                 </div>
                 

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, Fragment } from 'react';
+import { createPortal } from 'react-dom';
 import { supabase } from '../../services/supabaseClient';
 import { PencilIcon, TrashIcon, SearchIcon } from '../shared/Icons';
 import JSZip from 'jszip';
@@ -42,7 +43,7 @@ const PROFILE_COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '
 
 const Modal: React.FC<{ isOpen: boolean; onClose: () => void; children: React.ReactNode }> = ({ isOpen, onClose, children }) => {
     if (!isOpen) return null;
-    return <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 font-mono"><div className="bg-black/80 backdrop-blur-xl border border-white/10 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] rounded-2xl relative">{children}</div></div>;
+    return createPortal(<div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 font-mono"><div className="bg-black/80 backdrop-blur-xl border border-white/10 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] rounded-2xl relative">{children}</div></div>, document.body);
 };
 
 const InputField: React.FC<{ label: string, value: string, onChange: (e: any) => void, type?: string, required?: boolean }> = ({ label, value, onChange, type = 'text', required }) => (
@@ -807,6 +808,68 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente' | 'as
                                 )}
                             </div>
                         )}
+
+                        {viewAssignedProfile && (
+                            <div className="flex flex-col h-[85vh]">
+                                <div className="p-6 bg-zinc-950 border-b border-zinc-900 flex-shrink-0">
+                                    <button onClick={() => setActiveCaseHistory(null)} className="text-zinc-500 hover:text-white text-[10px] uppercase tracking-widest mb-2 flex items-center gap-2 transition-colors">
+                                        ‹ Volver a la Lista
+                                    </button>
+                                    <h2 className="text-lg font-bold italic tracking-widest uppercase text-white mt-2 flex items-center gap-4">
+                                        PANEL DE REVISIÓN: {activeCaseHistory.titulo}
+                                        {activeCaseHistory.estado === 'cerrado' && <span className="text-red-500 border border-red-900/50 bg-red-950/30 text-[8px] font-black py-1 px-3 uppercase tracking-widest">CASO CERRADO</span>}
+                                    </h2>
+                                </div>
+                                
+                                <div className={`p-6 flex-grow bg-black space-y-8 ${scrollbarStyle}`}>
+                                    {loadingUpdates ? <p className="text-zinc-500 text-sm">Cargando historial...</p> : caseUpdates.length === 0 ? <p className="text-zinc-600 text-sm italic">No hay actividad para revisar en este caso.</p> : (
+                                        caseUpdates.map((u) => {
+                                            const status = u.estado_aprobacion || 'pendiente';
+                                            const isPending = status === 'pendiente';
+                                            const isRejected = status === 'rechazado';
+                                            const isApproved = status === 'aprobado';
+                                            
+                                            return (
+                                                <div key={u.id} className={`relative pl-6 border-l group/item ${isRejected ? 'border-red-900' : 'border-zinc-800'}`}>
+                                                    <div className={`absolute w-2 h-2 rounded-full -left-[5px] top-1.5 ring-4 ring-black ${isRejected ? 'bg-red-600' : (isPending ? 'bg-yellow-500' : 'bg-green-500')}`}></div>
+                                                    
+                                                    <div className="flex justify-between items-start">
+                                                        <div className="flex items-center gap-2">
+                                                            <p className="text-[10px] text-zinc-600 font-mono">{new Date(u.created_at).toLocaleString()}</p>
+                                                            {isPending && <span className="bg-yellow-900/30 text-yellow-500 text-[8px] uppercase px-1 py-0.5 rounded font-bold">Pendiente de Revisión</span>}
+                                                            {isRejected && <span className="bg-red-900/30 text-red-500 text-[8px] uppercase px-1 py-0.5 rounded font-bold">Rechazado</span>}
+                                                            {isApproved && <span className="bg-green-900/30 text-green-500 text-[8px] uppercase px-1 py-0.5 rounded font-bold">Aprobado</span>}
+                                                        </div>
+                                                        
+                                                        {activeCaseHistory.estado !== 'cerrado' && (
+                                                            <div className="flex gap-4 opacity-0 group-hover/item:opacity-100 transition-opacity items-center">
+                                                                {!isApproved && !isRejected && <button type="button" onClick={(e) => { e.stopPropagation(); handleApproveUpdate(u.id); }} className="text-green-600 hover:text-green-400" title="Aprobar (Dar Visto)"><CheckIcon /></button>}
+                                                                {!isApproved && <button type="button" onClick={(e) => { e.stopPropagation(); setRejectDialog({ isOpen: true, updateId: u.id }); }} className="text-red-500 hover:text-red-400" title="Mandar a corregir (Rechazar)"><XMarkIcon /></button>}
+                                                                <button type="button" onClick={(e) => { e.stopPropagation(); handleDeleteUpdate(u); }} className="text-zinc-600 hover:text-red-500 transition-colors ml-2" title="Eliminar permanentemente"><TrashIcon /></button>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    
+                                                    <p className="text-sm text-zinc-300 mt-1">{u.descripcion}</p>
+                                                    
+                                                    {u.file_url && (
+                                                        <a href={u.file_url} target="_blank" rel="noreferrer" className={`inline-flex items-center text-[10px] bg-zinc-900 border px-3 py-1.5 mt-3 uppercase tracking-widest transition-colors ${isRejected ? 'border-red-900 text-red-400 hover:bg-red-950' : 'border-zinc-800 text-blue-400 hover:bg-zinc-800'}`}>
+                                                            <DocumentIcon /> {u.file_name}
+                                                        </a>
+                                                    )}
+
+                                                    {isRejected && u.observacion && (
+                                                        <div className="mt-3 bg-red-950/30 border border-red-900 p-2 text-xs text-red-400">
+                                                            <strong className="uppercase text-[10px] tracking-widest block mb-1">Motivo de Rechazo:</strong>{u.observacion}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })
+                                    )}
+                                </div>
+                            </div>
+                        )}
                     </Fragment>
                 )}
             </Modal>
@@ -1101,7 +1164,7 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente' | 'as
                     <p className="text-zinc-400 mb-8">{confirmDialog.message}</p>
                     <div className="flex justify-center gap-4">
                         <button onClick={() => setConfirmDialog({ ...confirmDialog, isOpen: false })} className="py-2 px-6 text-zinc-400 hover:text-white transition-colors text-[10px] uppercase font-bold tracking-widest border border-white/10 rounded-xl hover:bg-white/5">Cancelar</button>
-                        <button onClick={() => { confirmDialog.onConfirm(); setConfirmDialog({ ...confirmDialog, isOpen: false }); }} disabled={actionLoading} className="bg-red-900 text-white font-bold py-2 px-6 hover:bg-red-800 transition-colors uppercase tracking-widest text-[10px] disabled:opacity-50">Confirmar</button>
+                        <button onClick={() => { confirmDialog.onConfirm(); setConfirmDialog({ ...confirmDialog, isOpen: false }); }} disabled={actionLoading} className="bg-red-600/80 backdrop-blur-md shadow-lg text-white font-bold py-2 px-6 hover:bg-red-500 transition-colors uppercase tracking-widest text-[10px] disabled:opacity-50 rounded-xl">Confirmar</button>
                     </div>
                 </div>
             </Modal>

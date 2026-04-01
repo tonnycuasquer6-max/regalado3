@@ -48,7 +48,6 @@ const InputField: React.FC<any> = ({ label, type = 'text', ...props }) => (
     </div>
 );
 
-// --- COMPONENTE SELECTOR CUSTOMIZADO ---
 const CustomSelect: React.FC<{ label: string; value: string; onChange: (val: string) => void; options: {id: string, label: string}[], disabled?: boolean }> = ({ label, value, onChange, options, disabled }) => {
     const [isOpen, setIsOpen] = useState(false);
     const selectedOpt = options.find(o => o.id === value);
@@ -123,7 +122,7 @@ const NumberControl: React.FC<any> = ({ label, value, step, min, onChange, isTim
 const Modal: React.FC<{ isOpen: boolean; onClose: () => void; children: React.ReactNode }> = ({ isOpen, onClose, children }) => {
     if (!isOpen) return null;
     return createPortal(
-      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 font-mono">
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[999999] flex items-center justify-center p-4 font-mono">
         <div className="bg-black/80 backdrop-blur-xl border border-white/10 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] rounded-2xl relative">
           {children}
         </div>
@@ -155,7 +154,7 @@ const calculateLayout = (entries: TimeEntry[]) => {
 
 const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = ({ onCancel, session }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
+  const [timeEntries, setTimeEntries] = useState<any[]>([]);
   const [cases, setCases] = useState<Case[]>([]);
   const [clientProfiles, setClientProfiles] = useState<Profile[]>([]);
   const [currentUserProfile, setCurrentUserProfile] = useState<Profile | null>(null);
@@ -165,7 +164,7 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
   
   const [isModalOpen, setIsModalOpen] = useSessionState('worker_tb_modalOpen', false);
   const [selectedSlot, setSelectedSlot] = useSessionState<{ date: string; hour: number } | null>('worker_tb_slot', null);
-  const [editingEntry, setEditingEntry] = useSessionState<TimeEntry | null>('worker_tb_editEntry', null);
+  const [editingEntry, setEditingEntry] = useSessionState<any | null>('worker_tb_editEntry', null);
   const [selectedClientId, setSelectedClientId] = useSessionState<string>('worker_tb_client', '');
   const [selectedCaseId, setSelectedCaseId] = useSessionState<string>('worker_tb_case', '');
   const [taskDescription, setTaskDescription] = useSessionState('worker_tb_desc', '');
@@ -215,7 +214,6 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
     const startOfWeek = getStartOfWeek(currentDate);
     const endOfWeek = new Date(startOfWeek); endOfWeek.setDate(startOfWeek.getDate() + 6);
     
-    // SOLUCIÓN AL PROBLEMA 1: Ruta explícita para evitar choque de FK
     const { data } = await supabase.from('time_entries')
         .select('*, perfil:profiles!perfil_id(primer_nombre, primer_apellido, rol, color_perfil), caso:cases!caso_id(titulo, cliente_id)')
         .eq('perfil_id', profile.id)
@@ -304,7 +302,7 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
     });
   };
 
-  const handleDragStart = (e: React.DragEvent, entry: TimeEntry) => {
+  const handleDragStart = (e: React.DragEvent, entry: any) => {
       if (isLimitedAccess) {
           e.preventDefault();
           return;
@@ -335,13 +333,6 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
       if (err instanceof Error) alert(`Error al mover: ${err.message}`);
       fetchWeekEntries(currentUserProfile);
     }
-  };
-
-  const getTimeBillingBadge = (hours: number) => {
-    if (hours >= 1.5) return { label: '100%', color: 'bg-green-600' };
-    if (hours >= 1.0) return { label: '75%', color: 'bg-yellow-500 text-black' };
-    if (hours >= 0.75) return { label: '50%', color: 'bg-orange-500 text-black' };
-    return { label: '25%', color: 'bg-red-500' };
   };
 
   const selectedCaseObj = cases.find(c => c.id === selectedCaseId);
@@ -412,9 +403,8 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
                         const height = entry.horas * 60;
                         const { width, left } = layout[entry.id];
                         
-                        // Utilizamos la nueva ruta segura para evitar errores de null
-                        const profileColor = (entry as any).perfil?.color_perfil || '#3b82f6';
-                        const caseTitle = (entry as any).caso?.titulo || 'Caso Desconocido';
+                        const profileColor = entry.perfil?.color_perfil || '#3b82f6';
+                        const caseTitle = entry.caso?.titulo || 'Caso Desconocido';
 
                         return (
                           <div key={entry.id} 
@@ -426,12 +416,10 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
                                onClick={(e) => { e.stopPropagation(); openEditEntryModal(entry); }}>
                             <div className="flex items-center justify-between gap-2 mb-1">
                               <p className="font-bold text-white text-[10px] uppercase tracking-wider truncate" style={{ color: profileColor }}>{caseTitle}</p>
-                              <span className={`text-[8px] px-2 py-1 rounded-full font-black ${getTimeBillingBadge(entry.horas).color}`}>
-                                {getTimeBillingBadge(entry.horas).label}
-                              </span>
                             </div>
                             <p className="text-zinc-300 text-[9px] leading-tight line-clamp-2">{entry.descripcion_tarea}</p>
-                            {entry.estado === 'cobrado' && <span className="mt-1 text-[8px] text-green-400 font-black tracking-widest uppercase">COBRADO</span>}
+                            {entry.estado === 'cobrado' && entry.estado_pago_contador === 'aprobado' && <span className="mt-1 text-[8px] text-green-400 font-black tracking-widest uppercase">COBRADO</span>}
+                            {entry.estado === 'cobrado' && entry.estado_pago_contador !== 'aprobado' && <span className="mt-1 text-[8px] text-yellow-500 font-black tracking-widest uppercase">EN ESPERA</span>}
                           </div>
                         )
                       })}
@@ -457,7 +445,7 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
                 <div>
                     <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">Trabajador</label>
                     <div className="w-full py-2 px-0 bg-transparent border-b-2 border-zinc-800 text-white opacity-70">
-                        {editingEntry ? `${(editingEntry as any).perfil?.primer_nombre} ${(editingEntry as any).perfil?.primer_apellido}` : `${currentUserProfile?.primer_nombre} ${currentUserProfile?.primer_apellido}`}
+                        {editingEntry ? `${editingEntry.perfil?.primer_nombre} ${editingEntry.perfil?.primer_apellido}` : `${currentUserProfile?.primer_nombre} ${currentUserProfile?.primer_apellido}`}
                     </div>
                 </div>
                 
@@ -534,7 +522,6 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
         </form>
       </Modal>
 
-      {/* TARJETA DE CONFIRMACIÓN PARA USUARIOS LIMITADOS ANTES DE GUARDAR */}
       <Modal isOpen={confirmSubmitModal} onClose={() => setConfirmSubmitModal(false)}>
           <div className="p-10 text-center flex flex-col items-center">
               <AlertIcon />

@@ -31,16 +31,15 @@ const getElapsedBusinessMs = (startDateStr: string) => {
     let elapsedMs = 0;
     let current = new Date(start);
     
-    if (current > end) return 0; // Seguridad por si la fecha es futura
+    if (current > end) return 0;
 
     while (current < end) {
         const nextDay = new Date(current);
-        nextDay.setHours(24, 0, 0, 0); // Salto al siguiente día a medianoche
+        nextDay.setHours(24, 0, 0, 0); 
         
         const stepEnd = nextDay < end ? nextDay : end;
         const day = current.getDay();
         
-        // 0 = Domingo, 6 = Sábado. Si NO es fin de semana, sumamos los milisegundos.
         if (day !== 0 && day !== 6) {
             elapsedMs += stepEnd.getTime() - current.getTime();
         }
@@ -51,7 +50,7 @@ const getElapsedBusinessMs = (startDateStr: string) => {
 
 // --- COMPONENTE: CRONÓMETRO EN TIEMPO REAL ---
 const CaseCountdown: React.FC<{ caso: any }> = ({ caso }) => {
-    const [timeLeft, setTimeLeft] = useState<{h: number, m: number, s: number, isNegative: boolean} | null>(null);
+    const [timeLeft, setTimeLeft] = useState<{h: number, m: number, s: number, isNegative: boolean, colorClass: string} | null>(null);
 
     useEffect(() => {
         const match = caso.descripcion?.match(/Tiempo estimado:\s*([\d.]+)h/);
@@ -62,14 +61,20 @@ const CaseCountdown: React.FC<{ caso: any }> = ({ caso }) => {
         const timer = setInterval(() => {
             const elapsedMs = getElapsedBusinessMs(caso.created_at);
             const remaining = estimatedMs - elapsedMs;
+            const percentage = remaining / estimatedMs;
+
+            let colorClass = 'text-green-500';
+            if (remaining <= 0) colorClass = 'text-red-500 animate-pulse';
+            else if (percentage <= 0.25) colorClass = 'text-orange-500';
+            else if (percentage <= 0.50) colorClass = 'text-yellow-500';
 
             if (remaining <= 0) {
-                setTimeLeft({ h: 0, m: 0, s: 0, isNegative: true });
+                setTimeLeft({ h: 0, m: 0, s: 0, isNegative: true, colorClass });
             } else {
                 const h = Math.floor(remaining / (1000 * 60 * 60));
                 const m = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
                 const s = Math.floor((remaining % (1000 * 60)) / 1000);
-                setTimeLeft({ h, m, s, isNegative: false });
+                setTimeLeft({ h, m, s, isNegative: false, colorClass });
             }
         }, 1000);
 
@@ -79,9 +84,8 @@ const CaseCountdown: React.FC<{ caso: any }> = ({ caso }) => {
     if (caso.estado === 'cerrado') return <span className="text-zinc-600 text-[10px] uppercase font-black">CASO CERRADO</span>;
     if (!timeLeft) return <span className="text-zinc-600 text-[10px] uppercase font-black">Sin tiempo estimado</span>;
 
-    const color = timeLeft.isNegative ? 'text-red-500 animate-pulse' : 'text-green-500';
     return (
-        <span className={`font-mono font-bold text-xs tracking-widest ${color}`}>
+        <span className={`font-mono font-bold text-xs tracking-widest ${timeLeft.colorClass}`}>
             ⏱️ {timeLeft.h}h {String(timeLeft.m).padStart(2, '0')}m {String(timeLeft.s).padStart(2, '0')}s
         </span>
     );
@@ -104,7 +108,6 @@ const scrollbarStyle = "overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-s
 const Modal: React.FC<{ isOpen: boolean; onClose?: () => void; children: React.ReactNode; isCritical?: boolean }> = ({ isOpen, onClose, children, isCritical = false }) => {
     if (!isOpen) return null;
     return createPortal(
-        // Si es crítico, el z-index es absurdamente alto y el fondo es rojo sólido.
         <div className={`fixed inset-0 ${isCritical ? 'bg-red-950/95 z-[999999]' : 'bg-black/80 backdrop-blur-sm z-[9999]'} flex items-center justify-center p-4 font-mono`}>
             <div className={`border shadow-2xl w-full overflow-hidden flex flex-col relative ${isCritical ? 'max-w-xl bg-red-900 border-red-500 rounded-3xl p-10 text-center animate-in zoom-in duration-500' : 'max-w-2xl bg-black border-zinc-800 max-h-[90vh]'}`}>
                 {children}
@@ -381,35 +384,39 @@ const WorkerClientsView: React.FC<{ session: Session, userRole: string }> = ({ s
                 </form>
             </Modal>
 
-            <Modal isOpen={!!activeCaseHistory} onClose={() => setActiveCaseHistory(null)}>
-                {activeCaseHistory && (
-                    <div className="flex flex-col h-[85vh]">
-                        <div className="p-6 bg-zinc-950 border-b border-zinc-900 flex-shrink-0">
-                            <button onClick={() => setActiveCaseHistory(null)} className="text-zinc-500 hover:text-white text-[10px] uppercase tracking-widest mb-2 flex items-center gap-2 transition-colors">‹ Volver a la Lista</button>
-                            <h2 className="text-lg font-bold italic tracking-widest uppercase text-white">HISTORIAL: {activeCaseHistory.titulo}</h2>
-                        </div>
-                        <div className={`p-6 flex-grow bg-black space-y-8 ${scrollbarStyle}`}>
-                            {caseUpdates.filter(u => u.estado_aprobacion === 'aprobado').length === 0 ? (
-                                <div className="p-8 border border-dashed border-zinc-900 text-center text-zinc-600 text-xs tracking-widest uppercase">No hay archivos aprobados para este caso.</div>
-                            ) : (
-                                caseUpdates.filter(u => u.estado_aprobacion === 'aprobado').map((u) => (
-                                    <div key={u.id} className="relative pl-6 border-l border-zinc-800">
-                                        <div className="absolute w-2 h-2 rounded-full -left-[5px] top-1.5 ring-4 ring-black bg-green-500"></div>
-                                        <div className="flex justify-between items-start"><p className="text-[10px] text-zinc-600 font-mono mb-1">{new Date(u.created_at).toLocaleString()}</p></div>
-                                        <span className="bg-green-900/30 text-green-500 px-2 py-0.5 rounded text-[8px] uppercase tracking-widest font-black inline-block mb-2">Aprobado</span>
-                                        <p className="text-sm text-zinc-300 mt-1">{u.descripcion}</p>
-                                        {u.file_url && (
-                                            <a href={u.file_url} target="_blank" rel="noreferrer" className="inline-flex items-center text-[10px] bg-zinc-900 border border-zinc-800 px-3 py-1.5 mt-3 text-blue-400 hover:bg-zinc-800 uppercase tracking-widest transition-colors">
-                                                <DocumentIcon /> {u.file_name}
-                                            </a>
-                                        )}
-                                    </div>
-                                ))
-                            )}
+            {/* SE APLICA EL CREATE PORTAL AL HISTORIAL TAMBIÉN PARA QUE FLOTE SIEMPRE CORRECTAMENTE */}
+            {activeCaseHistory && createPortal(
+                <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[99999999] flex items-center justify-center p-4 font-mono">
+                    <div className="bg-black border border-zinc-800 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] relative animate-in zoom-in duration-300">
+                        <div className="flex flex-col h-[85vh]">
+                            <div className="p-6 bg-zinc-950 border-b border-zinc-900 flex-shrink-0">
+                                <button onClick={() => setActiveCaseHistory(null)} className="text-zinc-500 hover:text-white text-[10px] uppercase tracking-widest mb-2 flex items-center gap-2 transition-colors">‹ Volver a la Lista</button>
+                                <h2 className="text-lg font-bold italic tracking-widest uppercase text-white">HISTORIAL: {activeCaseHistory.titulo}</h2>
+                            </div>
+                            <div className={`p-6 flex-grow bg-black space-y-8 ${scrollbarStyle}`}>
+                                {caseUpdates.filter(u => u.estado_aprobacion === 'aprobado').length === 0 ? (
+                                    <div className="p-8 border border-dashed border-zinc-900 text-center text-zinc-600 text-xs tracking-widest uppercase">No hay archivos aprobados para este caso.</div>
+                                ) : (
+                                    caseUpdates.filter(u => u.estado_aprobacion === 'aprobado').map((u) => (
+                                        <div key={u.id} className="relative pl-6 border-l border-zinc-800">
+                                            <div className="absolute w-2 h-2 rounded-full -left-[5px] top-1.5 ring-4 ring-black bg-green-500"></div>
+                                            <div className="flex justify-between items-start"><p className="text-[10px] text-zinc-600 font-mono mb-1">{new Date(u.created_at).toLocaleString()}</p></div>
+                                            <span className="bg-green-900/30 text-green-500 px-2 py-0.5 rounded text-[8px] uppercase tracking-widest font-black inline-block mb-2">Aprobado</span>
+                                            <p className="text-sm text-zinc-300 mt-1">{u.descripcion}</p>
+                                            {u.file_url && (
+                                                <a href={u.file_url} target="_blank" rel="noreferrer" className="inline-flex items-center text-[10px] bg-zinc-900 border border-zinc-800 px-3 py-1.5 mt-3 text-blue-400 hover:bg-zinc-800 uppercase tracking-widest transition-colors">
+                                                    <DocumentIcon /> {u.file_name}
+                                                </a>
+                                            )}
+                                        </div>
+                                    ))
+                                )}
+                            </div>
                         </div>
                     </div>
-                )}
-            </Modal>
+                </div>,
+                document.body
+            )}
         </div>
     );
 };
@@ -421,6 +428,7 @@ const WorkerAssignedCasesView: React.FC<{ session: Session, openSpecificCase: an
     const [assignedClientsDict, setAssignedClientsDict] = useState<{ [key: string]: { client: any, cases: any[] } }>({});
     const [loading, setLoading] = useState(true);
 
+    // Memoria Caché Inyectada
     const [expandedClientId, setExpandedClientId] = useSessionState<string | null>('w_cases_expanded', null);
     const [activeCaseHistory, setActiveCaseHistory] = useSessionState<any | null>('w_cases_history', null);
     const [updateDesc, setUpdateDesc] = useSessionState('w_cases_desc', '');
@@ -455,7 +463,7 @@ const WorkerAssignedCasesView: React.FC<{ session: Session, openSpecificCase: an
         if (openSpecificCase) {
             setExpandedClientId(openSpecificCase.cliente_id);
             openCaseHistory(openSpecificCase);
-            setOpenSpecificCase(null); // Consumimos la acción
+            setOpenSpecificCase(null); 
         }
     }, [openSpecificCase]);
 
@@ -530,9 +538,9 @@ const WorkerAssignedCasesView: React.FC<{ session: Session, openSpecificCase: an
                 </div>
             )}
 
-            {/* Este Modal se comporta normalmente pero usa z-[9999999] para ponerse sobre el Bloqueador Rojo si es necesario */}
-            {activeCaseHistory && (
-                <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[9999999] flex items-center justify-center p-4 font-mono">
+            {/* SE USA CREATEPORTAL PARA QUE LA LÍNEA DE TIEMPO QUEDE POR ENCIMA DEL BLOQUEO ROJO DE SER NECESARIO */}
+            {activeCaseHistory && createPortal(
+                <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[99999999] flex items-center justify-center p-4 font-mono">
                     <div className="bg-black border border-zinc-800 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] relative animate-in zoom-in duration-300">
                         <div className="flex flex-col h-[85vh]">
                             <div className="p-6 bg-zinc-950 border-b border-zinc-900">
@@ -571,21 +579,22 @@ const WorkerAssignedCasesView: React.FC<{ session: Session, openSpecificCase: an
                                         <button type="button" onClick={() => fileInputRef.current?.click()} className={`p-3 border border-zinc-800 transition-colors ${uploadFile ? 'text-green-500' : 'text-zinc-500 hover:text-white'}`}><PaperClipIcon /></button>
                                         <input type="text" placeholder="Añadir actualización al caso..." className="flex-grow bg-transparent border-b border-zinc-800 py-2 text-white focus:outline-none transition-colors" value={updateDesc} onChange={(e) => setUpdateDesc(e.target.value)} required />
                                         <button disabled={actionLoading} className="bg-white text-black font-black px-6 py-2 text-[10px] uppercase tracking-widest hover:bg-zinc-300 transition-colors disabled:opacity-50">
-                                            {editingUpdate ? 'Reenviar' : 'Enviar'}
+                                            {actionLoading ? '...' : (editingUpdate ? 'Guardar' : 'Enviar')}
                                         </button>
                                     </div>
                                 </form>
                             </div>
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
         </div>
     );
 };
 
 // ==========================================
-// VISTA: CHAT INTERNO 
+// VISTA: CHAT INTERNO (TRABAJADOR - SOLUCIÓN CHAT REAL)
 // ==========================================
 const WorkerChatView: React.FC<{ session: Session }> = ({ session }) => {
     const [adminProfile, setAdminProfile] = useState<any>(null);
@@ -796,7 +805,7 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
     const [notificationsOpen, setNotificationsOpen] = useState(false);
     const [notifications, setNotifications] = useState<any[]>([]);
 
-    // --- ESTADOS PARA SISTEMA GLOBAL DE ALERTAS (PUNTO 6) ---
+    // --- ESTADOS PARA SISTEMA GLOBAL DE ALERTAS ---
     const [criticalAlertCase, setCriticalCase] = useState<any | null>(null);
     const [warningAlerts, setWarningAlerts] = useState<any[]>([]); // Array para 75%, 50%, 25%
     const [dismissedWarnings, setDismissedWarnings] = useState<Record<string, boolean>>(() => {
@@ -871,6 +880,13 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
             let foundCritical = null;
             let newWarnings: any[] = [];
 
+            const formatRemainingTime = (ms: number) => {
+                const h = Math.floor(ms / (1000 * 60 * 60));
+                const m = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
+                const s = Math.floor((ms % (1000 * 60)) / 1000);
+                return `${h}h ${String(m).padStart(2, '0')}m ${String(s).padStart(2, '0')}s`;
+            };
+
             casesData.forEach(c => {
                 const match = c.descripcion?.match(/Tiempo estimado:\s*([\d.]+)h/);
                 if (!match) return;
@@ -893,7 +909,7 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
                     if (warnType) {
                         const warnKey = `${c.id}_${warnType}`;
                         if (!dismissedWarnings[warnKey]) {
-                            newWarnings.push({ caso: c, type: warnType, key: warnKey, percentage: Math.round(percentage * 100) });
+                            newWarnings.push({ caso: c, type: warnType, key: warnKey, remainingTimeStr: formatRemainingTime(remaining) });
                         }
                     }
                 }
@@ -942,7 +958,7 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
                 <button 
                     onClick={() => {
                         handleMenuClick('ASSIGNED_CASES');
-                        setOpenSpecificCase(criticalAlertCase); // Dispara la apertura del caso en la vista correspondiente
+                        setOpenSpecificCase(criticalAlertCase);
                     }} 
                     className="mt-6 w-full bg-white text-red-900 font-black py-4 px-6 text-sm tracking-widest uppercase hover:bg-zinc-300 transition-colors rounded-xl shadow-2xl"
                 >
@@ -962,7 +978,7 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
                     return (
                         <div key={warn.key} className={`border-2 p-5 rounded-2xl shadow-2xl backdrop-blur-md animate-in slide-in-from-right-8 duration-500 max-w-sm w-full ${colors}`}>
                             <div className="flex justify-between items-start mb-2">
-                                <p className="font-black uppercase tracking-widest text-[10px]">Alerta de Tiempo: Queda {warn.percentage}%</p>
+                                <p className="font-black uppercase tracking-widest text-[10px]">Alerta de Tiempo: Queda {warn.remainingTimeStr}</p>
                                 <button onClick={() => dismissWarning(warn.key)} className="text-white/50 hover:text-white text-[10px] font-bold">X CERRAR</button>
                             </div>
                             <p className="text-sm font-bold">{warn.caso.titulo}</p>
