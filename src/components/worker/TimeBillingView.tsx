@@ -1,7 +1,24 @@
 import React, { useState, useEffect, useCallback, Fragment } from 'react';
+import { createPortal } from 'react-dom';
 import { supabase } from '../../services/supabaseClient';
 import type { Session } from '@supabase/supabase-js';
 import { Case, TimeEntry, Profile } from '../../types';
+
+// --- HOOK DE MEMORIA CACHÉ ---
+function useSessionState<T>(key: string, initialValue: T): [T, React.Dispatch<React.SetStateAction<T>>] {
+    const [state, setState] = useState<T>(() => {
+        try {
+            const item = sessionStorage.getItem(key);
+            return item ? JSON.parse(item) : initialValue;
+        } catch (error) {
+            return initialValue;
+        }
+    });
+    useEffect(() => {
+        sessionStorage.setItem(key, JSON.stringify(state));
+    }, [key, state]);
+    return [state, setState];
+}
 
 const getStartOfWeek = (date: Date) => {
   const d = new Date(date);
@@ -20,45 +37,82 @@ const toYYYYMMDD = (date: Date) => {
 const ChevronUpIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" /></svg>;
 const ChevronDownIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>;
 const TrashIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2M10 11v6M14 11v6" /></svg>;
+const CheckIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>;
+const PencilIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" /></svg>;
+const AlertIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-12 h-12 text-yellow-500 mb-4 mx-auto"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>;
 
 const InputField: React.FC<any> = ({ label, type = 'text', ...props }) => (
     <div>
         <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">{label}</label>
-        <input type={type} className="w-full py-2 px-0 bg-transparent border-b-2 border-zinc-800 text-white focus:outline-none focus:border-zinc-500 transition-colors" {...props} />
+        <input type={type} className="w-full py-2 px-0 bg-transparent border-b-2 border-zinc-800 text-white focus:outline-none focus:border-zinc-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" {...props} />
     </div>
 );
 
-const SelectField: React.FC<any> = ({ label, options, ...props }) => (
-     <div>
-        <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">{label}</label>
-        <select className="w-full py-2 px-0 bg-transparent border-b-2 border-zinc-800 text-white focus:outline-none focus:border-zinc-500 transition-colors disabled:opacity-50" {...props}>
-            <option value="" className="bg-black">Seleccionar...</option>
-            {options.map((opt: any) => (
-                <option key={opt.id} value={opt.id} className="bg-black">{opt.titulo || `${opt.primer_nombre || ''} ${opt.primer_apellido || ''}`.trim()}</option>
-            ))}
-        </select>
-    </div>
-);
+// --- COMPONENTE SELECTOR CUSTOMIZADO ---
+const CustomSelect: React.FC<{ label: string; value: string; onChange: (val: string) => void; options: {id: string, label: string}[], disabled?: boolean }> = ({ label, value, onChange, options, disabled }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const selectedOpt = options.find(o => o.id === value);
 
-const NumberControl: React.FC<any> = ({ label, value, step, min, onChange, isTime = false, isMoney = false, prefix = '' }) => {
-    const handleDecrease = () => { let newVal = value - step; if (newVal < min) newVal = min; onChange(Math.round(newVal * 10000) / 10000); };
-    const handleIncrease = () => { let newVal = value + step; onChange(Math.round(newVal * 10000) / 10000); };
+    return (
+        <div className={`relative ${disabled ? 'opacity-50 pointer-events-none' : ''}`}>
+            <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">{label}</label>
+            <div 
+                onClick={() => !disabled && setIsOpen(!isOpen)}
+                className="w-full py-2 px-0 bg-transparent border-b-2 border-zinc-800 text-white uppercase tracking-widest text-[11px] font-bold cursor-pointer flex justify-between items-center transition-all focus-within:border-zinc-500"
+            >
+                <span className="truncate pr-4 text-zinc-300">
+                    {selectedOpt ? selectedOpt.label : 'Seleccionar...'}
+                </span>
+                <svg className={`fill-current h-4 w-4 text-zinc-500 transition-transform duration-300 flex-shrink-0 ${isOpen ? 'rotate-180' : ''}`} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+            </div>
+            
+            {isOpen && (
+                <>
+                    <div className="fixed inset-0 z-[10000]" onClick={() => setIsOpen(false)}></div>
+                    <div className="absolute top-full left-0 w-full mt-2 bg-black border border-zinc-800 shadow-2xl z-[10001] flex flex-col max-h-48 overflow-y-auto animate-in fade-in slide-in-from-top-2 duration-200 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                        <button
+                            type="button"
+                            onClick={() => { onChange(''); setIsOpen(false); }}
+                            className={`p-4 text-left text-[10px] uppercase tracking-widest font-bold transition-colors ${!value ? 'bg-zinc-900 text-white border-l-2 border-white' : 'text-zinc-500 hover:text-white hover:bg-zinc-900 border-l-2 border-transparent'}`}
+                        >
+                            Seleccionar...
+                        </button>
+                        {options.map(opt => (
+                            <button
+                                key={opt.id}
+                                type="button"
+                                onClick={() => { onChange(opt.id); setIsOpen(false); }}
+                                className={`p-4 text-left text-[10px] uppercase tracking-widest font-bold transition-colors ${value === opt.id ? 'bg-zinc-900 text-white border-l-2 border-white' : 'text-zinc-500 hover:text-white hover:bg-zinc-900 border-l-2 border-transparent'}`}
+                            >
+                                {opt.label}
+                            </button>
+                        ))}
+                    </div>
+                </>
+            )}
+        </div>
+    );
+};
+
+const NumberControl: React.FC<any> = ({ label, value, step, min, onChange, isTime = false, isMoney = false, prefix = '', disabled = false }) => {
+    const handleDecrease = () => { if (disabled) return; let newVal = value - step; if (newVal < min) newVal = min; onChange(Math.round(newVal * 10000) / 10000); };
+    const handleIncrease = () => { if (disabled) return; let newVal = value + step; onChange(Math.round(newVal * 10000) / 10000); };
     const formatTime = (decimalHours: number) => { const totalMinutes = Math.round(decimalHours * 60); const h = Math.floor(totalMinutes / 60); const m = totalMinutes % 60; return `${h}h ${m}m`; };
 
     const textColor = isMoney ? 'text-green-400' : 'text-white';
     const borderColor = isMoney ? 'border-green-900/50 focus-within:border-green-500' : 'border-zinc-800 focus-within:border-zinc-500';
 
     return (
-        <div>
+        <div className={disabled ? 'opacity-50 pointer-events-none' : ''}>
             <label className={`block text-[10px] font-black mb-2 uppercase tracking-[0.3em] ${isMoney ? 'text-green-700' : 'text-zinc-500'}`}>{label}</label>
             <div className={`flex items-center bg-transparent border-b-2 transition-colors group pb-1 ${borderColor}`}>
                 <div className={`flex-grow flex justify-start items-center font-mono text-xl ${textColor}`}>
                     {prefix && <span className="mr-1 opacity-70">{prefix}</span>}
-                    <input type="number" value={value === 0 ? '' : value} onChange={(e) => onChange(e.target.value ? parseFloat(e.target.value) : 0)} className="w-full bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" step="any" min={min} />
+                    <input type="number" value={value === 0 ? '' : value} onChange={(e) => onChange(e.target.value ? parseFloat(e.target.value) : 0)} disabled={disabled} className="w-full bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" step="any" min={min} />
                 </div>
                 <div className="flex flex-col ml-2 justify-center">
-                    <button type="button" onClick={handleIncrease} className={`hover:text-white transition-colors flex items-center justify-center p-0.5 ${isMoney ? 'text-green-700 hover:text-green-400' : 'text-zinc-600'}`}><ChevronUpIcon /></button>
-                    <button type="button" onClick={handleDecrease} className={`hover:text-white transition-colors flex items-center justify-center p-0.5 mt-0.5 ${isMoney ? 'text-green-700 hover:text-green-400' : 'text-zinc-600'}`}><ChevronDownIcon /></button>
+                    <button type="button" onClick={handleIncrease} disabled={disabled} className={`hover:text-white transition-colors flex items-center justify-center p-0.5 ${isMoney ? 'text-green-700 hover:text-green-400' : 'text-zinc-600'}`}><ChevronUpIcon /></button>
+                    <button type="button" onClick={handleDecrease} disabled={disabled} className={`hover:text-white transition-colors flex items-center justify-center p-0.5 mt-0.5 ${isMoney ? 'text-green-700 hover:text-green-400' : 'text-zinc-600'}`}><ChevronDownIcon /></button>
                 </div>
             </div>
             {isTime && ( <div className="text-xs text-zinc-500 font-mono mt-3 text-left uppercase tracking-widest">equivale a: <span className="text-zinc-300 font-bold ml-1">{formatTime(value)}</span></div> )}
@@ -68,12 +122,13 @@ const NumberControl: React.FC<any> = ({ label, value, step, min, onChange, isTim
 
 const Modal: React.FC<{ isOpen: boolean; onClose: () => void; children: React.ReactNode }> = ({ isOpen, onClose, children }) => {
     if (!isOpen) return null;
-    return (
+    return createPortal(
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 font-mono">
-        <div className="bg-black/80 backdrop-blur-xl border border-white/10 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] rounded-2xl">
+        <div className="bg-black/80 backdrop-blur-xl border border-white/10 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] rounded-2xl relative">
           {children}
         </div>
-      </div>
+      </div>,
+      document.body
     );
 };
 
@@ -108,23 +163,21 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
   const [actionLoading, setActionLoading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [selectedSlot, setSelectedSlot] = useState<{ date: string; hour: number } | null>(null);
-  const [editingEntry, setEditingEntry] = useState<TimeEntry | null>(null);
-  
-  const [selectedClientId, setSelectedClientId] = useState<string>('');
-  const [selectedCaseId, setSelectedCaseId] = useState<string>('');
-  const [taskDescription, setTaskDescription] = useState('');
-  const [hoursWorked, setHoursWorked] = useState<number>(1);
-  const [rate, setRate] = useState<number>(0);
-  const [billingMode, setBillingMode] = useState<'descripcion' | 'costos_fijos'>('descripcion');
-  const [fixedCostOption, setFixedCostOption] = useState<number | null>(null);
-  const [fixedCostSearch, setFixedCostSearch] = useState('');
-  const fixedCostOptions = Array.from({ length: 50 }, (_, i) => i + 1);
-  
-  const [pagoStatus, setPagoStatus] = useState<'cobrado' | 'por_cobrar'>('por_cobrar');
+  const [isModalOpen, setIsModalOpen] = useSessionState('worker_tb_modalOpen', false);
+  const [selectedSlot, setSelectedSlot] = useSessionState<{ date: string; hour: number } | null>('worker_tb_slot', null);
+  const [editingEntry, setEditingEntry] = useSessionState<TimeEntry | null>('worker_tb_editEntry', null);
+  const [selectedClientId, setSelectedClientId] = useSessionState<string>('worker_tb_client', '');
+  const [selectedCaseId, setSelectedCaseId] = useSessionState<string>('worker_tb_case', '');
+  const [taskDescription, setTaskDescription] = useSessionState('worker_tb_desc', '');
+  const [hoursWorked, setHoursWorked] = useSessionState<number>('worker_tb_hours', 1);
+  const [rate, setRate] = useSessionState<number>('worker_tb_rate', 0);
+  const [pagoStatus, setPagoStatus] = useSessionState<'cobrado' | 'por_cobrar'>('worker_tb_pago', 'por_cobrar');
 
+  const [confirmSubmitModal, setConfirmSubmitModal] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void }>({ isOpen: false, title: '', message: '', onConfirm: () => {} });
+
+  const isLimitedAccess = currentUserProfile?.permiso_time_billing === 'acceso_limitado';
+  const isEditingExistingAndLimited = isLimitedAccess && editingEntry !== null;
 
   const fetchInitialData = useCallback(async () => {
     setLoading(true);
@@ -132,11 +185,27 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
       const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
       setCurrentUserProfile(profile);
 
-      const { data: clients } = await supabase.from('profiles').select('*').eq('rol', 'cliente');
-      setClientProfiles(clients || []);
+      // CORRECCIÓN: Filtrar solo clientes y casos asignados
+      const { data: asignaciones } = await supabase.from('asignaciones_casos').select('case_id').eq('abogado_id', session.user.id);
+      const assignedCaseIds = asignaciones ? asignaciones.map(a => a.case_id) : [];
 
-      const { data: allCases } = await supabase.from('cases').select('*');
-      setCases(allCases || []);
+      let assignedCases: Case[] = [];
+      let assignedClients: Profile[] = [];
+
+      if (assignedCaseIds.length > 0) {
+          const { data: fetchedCases } = await supabase.from('cases').select('*').in('id', assignedCaseIds);
+          assignedCases = fetchedCases || [];
+          
+          const clientIds = [...new Set(assignedCases.map(c => c.cliente_id))];
+          
+          if (clientIds.length > 0) {
+              const { data: fetchedClients } = await supabase.from('profiles').select('*').in('id', clientIds);
+              assignedClients = fetchedClients || [];
+          }
+      }
+
+      setCases(assignedCases);
+      setClientProfiles(assignedClients);
       
       return profile;
     } catch (err) { return null; } finally { setLoading(false); }
@@ -160,28 +229,46 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
 
   const changeWeek = (direction: 'prev' | 'next') => { setCurrentDate(prev => { const newDate = new Date(prev); newDate.setDate(prev.getDate() + (direction === 'prev' ? -7 : 7)); return newDate; }); };
 
+  const closeAndClearModal = () => {
+    setIsModalOpen(false);
+    setEditingEntry(null);
+    setSelectedSlot(null);
+    setSelectedClientId('');
+    setSelectedCaseId('');
+    setTaskDescription('');
+    setHoursWorked(1);
+    setRate(0);
+    setPagoStatus('por_cobrar');
+    sessionStorage.removeItem('worker_tb_modalOpen');
+    setConfirmSubmitModal(false);
+  };
+
   const openNewEntryModal = (date: string, hour: number) => {
     setEditingEntry(null); setSelectedSlot({ date, hour }); setSelectedClientId(''); setSelectedCaseId(''); setTaskDescription(''); setHoursWorked(1); setRate(0); setPagoStatus('por_cobrar'); setIsModalOpen(true);
-    setBillingMode('descripcion'); setFixedCostOption(null); setFixedCostSearch('');
   };
 
   const openEditEntryModal = (entry: any) => {
     setEditingEntry(entry); setSelectedSlot({ date: entry.fecha_tarea, hour: parseInt(entry.hora_inicio.split(':')[0]) }); setSelectedClientId(entry.cases?.cliente_id || ''); setSelectedCaseId(entry.caso_id); setTaskDescription(entry.descripcion_tarea); setHoursWorked(entry.horas); setRate(entry.tarifa_personalizada || 0); setPagoStatus(entry.estado || 'por_cobrar'); setIsModalOpen(true);
-    setBillingMode('descripcion'); setFixedCostOption(null); setFixedCostSearch('');
   };
 
-  const handleSaveEntry = async (e: React.FormEvent) => {
+  const attemptSaveEntry = (e: React.FormEvent) => {
     e.preventDefault();
-    const finalDescription = billingMode === 'costos_fijos' ? `Costo fijo #${fixedCostOption || '1'}` : taskDescription;
+    if (isLimitedAccess && !editingEntry) {
+        setConfirmSubmitModal(true);
+    } else {
+        executeSaveEntry();
+    }
+  };
 
-    if (!selectedSlot || !selectedCaseId || !finalDescription || hoursWorked <= 0 || !currentUserProfile) return;
+  const executeSaveEntry = async () => {
+    if (!selectedSlot || !selectedCaseId || !taskDescription || hoursWorked <= 0 || !currentUserProfile) return;
     setActionLoading(true);
     
     const entryData = {
       id: editingEntry?.id,
       perfil_id: currentUserProfile.id,
       caso_id: selectedCaseId,
-      descripcion_tarea: finalDescription,
+      descripcion_tarea: taskDescription,
       fecha_tarea: selectedSlot.date,
       hora_inicio: `${String(selectedSlot.hour).padStart(2, '0')}:00:00`,
       horas: hoursWorked,
@@ -193,7 +280,7 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
     try {
       const { error } = await supabase.from('time_entries').upsert(entryData);
       if (error) throw error;
-      setIsModalOpen(false);
+      closeAndClearModal();
       await fetchWeekEntries(currentUserProfile);
     } catch (error: any) { alert(`Error al guardar: ${error.message}`); } finally { setActionLoading(false); }
   };
@@ -210,16 +297,18 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
             try {
                 const { error } = await supabase.from('time_entries').delete().eq('id', idToDelete);
                 if (error) throw error;
-                setIsModalOpen(false);
-                setEditingEntry(null);
+                closeAndClearModal();
                 await fetchWeekEntries(currentUserProfile);
             } catch (error: any) { alert(`Error: ${error.message}`); } finally { setActionLoading(false); }
         }
     });
   };
 
-  // --- LÓGICA DE DRAG & DROP ---
   const handleDragStart = (e: React.DragEvent, entry: TimeEntry) => {
+      if (isLimitedAccess) {
+          e.preventDefault();
+          return;
+      }
       e.dataTransfer.setData('text/plain', entry.id.toString());
       setTimeout(() => setIsDragging(true), 0);
   };
@@ -231,6 +320,9 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
   const handleDrop = async (e: React.DragEvent, date: string, hour: number) => {
     e.preventDefault();
     setIsDragging(false);
+    
+    if (isLimitedAccess) return;
+
     const entryId = e.dataTransfer.getData('text/plain');
     if (!entryId) return;
 
@@ -252,7 +344,6 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
     return { label: '25%', color: 'bg-red-500' };
   };
 
-  // --- SUGERENCIAS ---
   const selectedCaseObj = cases.find(c => c.id === selectedCaseId);
   const presetRateMatch = selectedCaseObj?.descripcion.match(/Precio:\s*\$([\d.]+)/);
   const suggestedRate = presetRateMatch ? parseFloat(presetRateMatch[1]) : null;
@@ -269,7 +360,10 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
 
       <div className="bg-black w-full animate-in fade-in duration-500 text-white p-4 font-mono">
         <header className="flex items-center justify-between mb-8 pb-4 border-b border-zinc-900">
-            <h1 className="text-3xl font-black uppercase tracking-tighter italic text-white">Time Billing Semanal</h1>
+            <div>
+                <h1 className="text-3xl font-black uppercase tracking-tighter italic text-white">Time Billing Semanal</h1>
+                {isLimitedAccess && <p className="text-yellow-500 text-[10px] tracking-widest uppercase mt-1">MODO ACCESO LIMITADO</p>}
+            </div>
             {onCancel && <button onClick={onCancel} className="text-zinc-400 hover:text-white font-black py-2 px-6 transition-colors uppercase text-[10px] tracking-[0.3em]">Volver</button>}
         </header>
 
@@ -300,13 +394,13 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
                   <div className="text-lg font-bold text-white">{day.getDate()}</div>
                 </div>
                 
-                <div className="relative w-full h-full" onDragOver={(e) => e.preventDefault()}>
+                <div className="relative w-full h-full" onDragOver={(e) => { if(!isLimitedAccess) e.preventDefault(); }}>
                   <div className="grid" style={{ gridTemplateRows: `repeat(${hours.length}, minmax(60px, auto))` }}>
                     {hours.map((hour, hourIndex) => (
                       <div key={hourIndex} className="h-[60px] border-b border-zinc-800 hover:bg-zinc-900/50 cursor-pointer transition-colors" 
                            onClick={() => openNewEntryModal(dayStr, hour)}
                            onDrop={(e) => handleDrop(e, dayStr, hour)}
-                           onDragOver={(e) => e.preventDefault()}>
+                           onDragOver={(e) => { if(!isLimitedAccess) e.preventDefault(); }}>
                       </div>
                     ))}
                   </div>
@@ -321,10 +415,10 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
 
                         return (
                           <div key={entry.id} 
-                               draggable={true}
+                               draggable={!isLimitedAccess}
                                onDragStart={(e) => handleDragStart(e, entry)}
                                onDragEnd={handleDragEnd}
-                               className={`absolute p-2 bg-black/60 backdrop-blur-md border border-white/10 shadow-xl cursor-move z-10 hover:bg-black/80 transition-colors overflow-hidden flex flex-col justify-start group ${isDragging ? 'pointer-events-none' : 'pointer-events-auto'} rounded-lg`} 
+                               className={`absolute p-2 bg-black/60 backdrop-blur-md border border-white/10 shadow-xl ${!isLimitedAccess ? 'cursor-move' : 'cursor-pointer'} z-10 hover:bg-black/80 transition-colors overflow-hidden flex flex-col justify-start group ${isDragging ? 'pointer-events-none' : 'pointer-events-auto'} rounded-lg`} 
                                style={{ top: `${top}px`, height: `${height}px`, left: `calc(${left} + 2px)`, width: `calc(${width} - 4px)`, borderLeft: `4px solid ${profileColor}` }} 
                                onClick={(e) => { e.stopPropagation(); openEditEntryModal(entry); }}>
                             <div className="flex items-center justify-between gap-2 mb-1">
@@ -346,11 +440,17 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
         </div>
       </div>
 
-      <Modal isOpen={isModalOpen && !!selectedSlot} onClose={() => setIsModalOpen(false)}>
-        <form onSubmit={handleSaveEntry} className="p-8 overflow-y-auto max-h-[85vh]">
-            <h2 className="text-xl font-bold text-white mb-8 italic tracking-widest">{editingEntry ? 'EDITAR' : 'REGISTRAR'} TAREA</h2>
+      <Modal isOpen={isModalOpen && !!selectedSlot && !confirmSubmitModal} onClose={closeAndClearModal}>
+        <form onSubmit={attemptSaveEntry} className="p-8 overflow-y-auto max-h-[85vh]">
+            <h2 className="text-xl font-bold text-white mb-8 italic tracking-widest">{editingEntry ? (isEditingExistingAndLimited ? 'VER' : 'EDITAR') : 'REGISTRAR'} TAREA</h2>
+            {isEditingExistingAndLimited && (
+                <div className="mb-6 p-4 border border-yellow-900/50 bg-yellow-950/20 text-yellow-500 text-xs font-bold uppercase tracking-widest rounded-xl text-center">
+                    Modo Vista: Tarea guardada. No tienes permisos para editar.
+                </div>
+            )}
+            
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
-                <InputField label="Fecha" type="date" value={selectedSlot?.date || ''} readOnly />
+                <InputField label="Fecha" type="date" value={selectedSlot?.date || ''} readOnly disabled={isEditingExistingAndLimited} />
                 <div>
                     <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">Trabajador</label>
                     <div className="w-full py-2 px-0 bg-transparent border-b-2 border-zinc-800 text-white opacity-70">
@@ -358,68 +458,29 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
                     </div>
                 </div>
                 
-                <SelectField label="Cliente" value={selectedClientId} onChange={(e: any) => setSelectedClientId(e.target.value)} options={clientProfiles} required />
-                <SelectField label="Caso" value={selectedCaseId} onChange={(e: any) => setSelectedCaseId(e.target.value)} options={filteredCases} disabled={!selectedClientId} required />
+                <CustomSelect 
+                    label="Cliente" 
+                    value={selectedClientId} 
+                    onChange={(val: string) => { setSelectedClientId(val); setSelectedCaseId(''); }} 
+                    options={clientProfiles.map(c => ({ id: c.id, label: `${c.primer_nombre || ''} ${c.primer_apellido || ''}`.trim() }))} 
+                    disabled={isEditingExistingAndLimited} 
+                />
+
+                <CustomSelect 
+                    label="Caso" 
+                    value={selectedCaseId} 
+                    onChange={(val: string) => setSelectedCaseId(val)} 
+                    options={filteredCases.map(c => ({ id: c.id, label: c.titulo }))} 
+                    disabled={!selectedClientId || isEditingExistingAndLimited} 
+                />
                 
                 <div className="md:col-span-2">
-                    <div className="mb-4 p-3 border border-white/10 rounded-xl bg-black/40 backdrop-blur-md text-xs text-zinc-400">
-                      Ejemplo de presupuesto express: 50 x 2 (10.000 km) = neto $4,500.
-                      <button type="button" onClick={() => {
-                        setBillingMode('costos_fijos');
-                        setFixedCostOption(50);
-                        setHoursWorked(2);
-                        setRate(2250);
-                        setTaskDescription('Tiempo extra por kilometraje 10.000');
-                      }} className="ml-2 text-blue-400 hover:text-blue-300">usar ejemplo</button>
-                    </div>
-                    <div className="flex gap-2 mb-4">
-                      <button type="button" onClick={() => setBillingMode('descripcion')} className={`px-4 py-2 rounded-xl transition-all ${billingMode === 'descripcion' ? 'bg-blue-600/80 backdrop-blur-md text-white shadow-lg' : 'bg-white/5 text-zinc-400 hover:text-white hover:bg-white/10'}`}>
-                        DESCRIPCIÓN
-                      </button>
-                      <button type="button" onClick={() => setBillingMode('costos_fijos')} className={`px-4 py-2 rounded-xl transition-all ${billingMode === 'costos_fijos' ? 'bg-blue-600/80 backdrop-blur-md text-white shadow-lg' : 'bg-white/5 text-zinc-400 hover:text-white hover:bg-white/10'}`}>
-                        COSTOS FIJOS
-                      </button>
-                    </div>
-
-                    {billingMode === 'costos_fijos' ? (
-                      <div className="space-y-3">
-                        <input
-                          type="text"
-                          value={fixedCostSearch}
-                          onChange={(e) => setFixedCostSearch(e.target.value)}
-                          placeholder="Buscar costo fijo..."
-                          className="w-full bg-transparent border-b-2 border-zinc-800 text-white py-2 px-1 focus:outline-none focus:border-zinc-500 transition-colors"
-                        />
-                        <select
-                          value={fixedCostOption || ''}
-                          onChange={(e) => {
-                            const selected = Number(e.target.value);
-                            const baseHours = 0.5 + selected * 0.1;
-                            const baseRate = 30 + selected * 1.5;
-                            setFixedCostOption(selected);
-                            setHoursWorked(Math.round(baseHours * 100) / 100);
-                            setRate(Math.round((baseRate + (Math.random() * 20 - 10)) * 100) / 100);
-                            setTaskDescription(`Costo fijo #${selected}`);
-                          }}
-                          className="w-full bg-black/80 border border-white/10 text-white py-3 px-4 rounded-xl focus:outline-none focus:border-white/30 transition-colors shadow-inner"
-                          required
-                        >
-                          <option value="">Selecciona costo fijo...</option>
-                          {fixedCostOptions
-                            .filter((opt) => opt.toString().includes(fixedCostSearch))
-                            .map((opt) => (
-                              <option key={opt} value={opt}>Costo fijo {opt}</option>
-                            ))}
-                        </select>
-                      </div>
-                    ) : (
-                      <InputField label="Descripción Tarea" value={taskDescription} onChange={(e: any) => setTaskDescription(e.target.value)} required />
-                    )}
+                    <InputField label="Descripción Tarea" value={taskDescription} onChange={(e: any) => setTaskDescription(e.target.value)} required disabled={isEditingExistingAndLimited} />
                 </div>
 
                 <div>
-                  <NumberControl label="Tiempo Invertido" value={hoursWorked} step={0.25} min={0.1} onChange={setHoursWorked} isTime={true} />
-                  {suggestedTime !== null && (
+                  <NumberControl label="Tiempo Invertido" value={hoursWorked} step={0.25} min={0.1} onChange={setHoursWorked} isTime={true} disabled={isEditingExistingAndLimited} />
+                  {suggestedTime !== null && !isEditingExistingAndLimited && (
                       <div className="text-[10px] text-blue-400 mt-2 cursor-pointer hover:text-blue-300 font-bold bg-blue-900/20 p-2 rounded border border-blue-900/50" onClick={() => setHoursWorked(suggestedTime)}>
                           Sugerencia del caso: {suggestedTime} hrs (Click para aplicar)
                       </div>
@@ -427,8 +488,8 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
                 </div>
                 
                 <div>
-                  <NumberControl label="Tarifa a Cobrar" value={rate} step={0.25} min={0} onChange={setRate} prefix="$" isMoney={true} />
-                  {suggestedRate !== null && (
+                  <NumberControl label="Tarifa a Cobrar" value={rate} step={0.25} min={0} onChange={setRate} prefix="$" isMoney={true} disabled={isEditingExistingAndLimited} />
+                  {suggestedRate !== null && !isEditingExistingAndLimited && (
                       <div className="text-[10px] text-green-400 mt-2 cursor-pointer hover:text-green-300 font-bold bg-green-900/20 p-2 rounded border border-green-900/50" onClick={() => setRate(suggestedRate)}>
                           Sugerencia del caso: ${suggestedRate.toFixed(2)} (Click para aplicar)
                       </div>
@@ -438,10 +499,10 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
                 <div className="md:col-span-2 mt-4 pt-4 border-t border-white/5">
                     <label className="block text-zinc-500 text-[10px] font-black mb-3 uppercase tracking-[0.3em]">Estado de Pago</label>
                     <div className="flex gap-4">
-                        <button type="button" onClick={() => setPagoStatus('cobrado')} className={`flex-1 py-3 rounded-xl font-bold text-xs tracking-widest uppercase transition-all ${pagoStatus === 'cobrado' ? 'bg-green-600/80 text-white shadow-lg border border-green-500' : 'bg-black/40 text-zinc-500 hover:bg-white/10 border border-zinc-800'}`}>
+                        <button type="button" onClick={() => setPagoStatus('cobrado')} disabled={isEditingExistingAndLimited} className={`flex-1 py-3 rounded-xl font-bold text-xs tracking-widest uppercase transition-all disabled:opacity-50 disabled:cursor-not-allowed ${pagoStatus === 'cobrado' ? 'bg-green-600/80 text-white shadow-lg border border-green-500' : 'bg-black/40 text-zinc-500 hover:bg-white/10 border border-zinc-800'}`}>
                             Cobrado
                         </button>
-                        <button type="button" onClick={() => setPagoStatus('por_cobrar')} className={`flex-1 py-3 rounded-xl font-bold text-xs tracking-widest uppercase transition-all ${pagoStatus === 'por_cobrar' ? 'bg-yellow-600/80 text-white shadow-lg border border-yellow-500' : 'bg-black/40 text-zinc-500 hover:bg-white/10 border border-zinc-800'}`}>
+                        <button type="button" onClick={() => setPagoStatus('por_cobrar')} disabled={isEditingExistingAndLimited} className={`flex-1 py-3 rounded-xl font-bold text-xs tracking-widest uppercase transition-all disabled:opacity-50 disabled:cursor-not-allowed ${pagoStatus === 'por_cobrar' ? 'bg-yellow-600/80 text-white shadow-lg border border-yellow-500' : 'bg-black/40 text-zinc-500 hover:bg-white/10 border border-zinc-800'}`}>
                             Por Cobrar
                         </button>
                     </div>
@@ -450,20 +511,59 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
             
             <div className="flex justify-between items-center border-t border-white/10 mt-10 pt-6 bg-transparent">
                 <div>
-                    {editingEntry && (
+                    {editingEntry && !isEditingExistingAndLimited && (
                         <button type="button" onClick={handleDeleteEntry} className="text-zinc-400 hover:text-red-400 hover:bg-red-900/30 p-3 transition-colors rounded-full" title="Eliminar Registro">
                             <TrashIcon />
                         </button>
                     )}
                 </div>
                 <div className="flex gap-4">
-                    <button type="button" onClick={() => setIsModalOpen(false)} className="font-bold py-2 px-6 text-zinc-400 hover:text-white transition-colors uppercase text-[10px] tracking-widest border border-white/10 hover:bg-white/5 rounded-xl">Cancelar</button>
-                    <button type="submit" disabled={actionLoading} className="bg-blue-600/80 hover:bg-blue-500 backdrop-blur-md shadow-lg text-white font-bold py-2 px-6 transition-colors uppercase tracking-widest text-[10px] disabled:opacity-50 rounded-xl">
-                        {actionLoading ? '...' : (editingEntry ? 'GUARDAR CAMBIOS' : 'REGISTRAR TAREA')}
+                    <button type="button" onClick={closeAndClearModal} className="font-bold py-2 px-6 text-zinc-400 hover:text-white transition-colors uppercase text-[10px] tracking-widest border border-white/10 hover:bg-white/5 rounded-xl">
+                        {isEditingExistingAndLimited ? 'Cerrar' : 'Cancelar'}
                     </button>
+                    {!isEditingExistingAndLimited && (
+                        <button type="submit" disabled={actionLoading} className="bg-blue-600/80 hover:bg-blue-500 backdrop-blur-md shadow-lg text-white font-bold py-2 px-6 transition-colors uppercase tracking-widest text-[10px] disabled:opacity-50 rounded-xl flex items-center gap-2">
+                            {actionLoading ? '...' : (editingEntry ? 'GUARDAR CAMBIOS' : 'REGISTRAR TAREA')}
+                        </button>
+                    )}
                 </div>
             </div>
         </form>
+      </Modal>
+
+      {/* TARJETA DE CONFIRMACIÓN PARA USUARIOS LIMITADOS ANTES DE GUARDAR */}
+      <Modal isOpen={confirmSubmitModal} onClose={() => setConfirmSubmitModal(false)}>
+          <div className="p-10 text-center flex flex-col items-center">
+              <AlertIcon />
+              <h2 className="text-2xl font-black text-white mb-2 italic tracking-widest uppercase">Confirmar Registro</h2>
+              <p className="text-yellow-500 font-bold mb-6 uppercase tracking-widest text-xs">Esta información NO será editable después de guardar.</p>
+              
+              <div className="bg-black/40 border border-white/10 rounded-xl p-6 w-full text-left mb-8 space-y-4">
+                  <div>
+                      <p className="text-[9px] text-zinc-500 uppercase tracking-widest font-black">Tarea / Descripción</p>
+                      <p className="text-white text-sm">{taskDescription}</p>
+                  </div>
+                  <div className="flex justify-between border-t border-white/5 pt-4">
+                      <div>
+                          <p className="text-[9px] text-zinc-500 uppercase tracking-widest font-black">Tiempo</p>
+                          <p className="text-white font-mono">{hoursWorked} hrs</p>
+                      </div>
+                      <div className="text-right">
+                          <p className="text-[9px] text-zinc-500 uppercase tracking-widest font-black">Tarifa</p>
+                          <p className="text-green-400 font-mono font-bold">${rate.toFixed(2)}</p>
+                      </div>
+                  </div>
+              </div>
+
+              <div className="flex justify-center gap-6 w-full">
+                  <button onClick={() => setConfirmSubmitModal(false)} className="flex-1 py-4 border border-zinc-700 text-zinc-400 hover:text-white hover:bg-white/5 transition-colors uppercase font-black tracking-widest text-[10px] rounded-xl flex items-center justify-center gap-2">
+                      <PencilIcon /> Volver y Editar
+                  </button>
+                  <button onClick={executeSaveEntry} disabled={actionLoading} className="flex-1 bg-green-600/80 backdrop-blur-md shadow-[0_0_20px_rgba(34,197,94,0.3)] text-white font-black py-4 hover:bg-green-500 transition-colors uppercase tracking-widest text-[10px] disabled:opacity-50 rounded-xl flex items-center justify-center gap-2">
+                      {actionLoading ? '...' : <><CheckIcon /> Confirmar y Guardar</>}
+                  </button>
+              </div>
+          </div>
       </Modal>
 
       <Modal isOpen={confirmDialog.isOpen} onClose={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}>

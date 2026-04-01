@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, Fragment } from 'react';
+import { createPortal } from 'react-dom';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from '../../services/supabaseClient';
 
@@ -6,6 +7,85 @@ import { supabase } from '../../services/supabaseClient';
 import TimeBillingView from './TimeBillingView';
 import ExpensesView from './ExpensesView';
 import WorkerProfile from './WorkerProfile'; 
+
+// --- HOOK DE MEMORIA CACHÉ GLOBAL ---
+function useSessionState<T>(key: string, initialValue: T): [T, React.Dispatch<React.SetStateAction<T>>] {
+    const [state, setState] = useState<T>(() => {
+        try {
+            const item = sessionStorage.getItem(key);
+            return item ? JSON.parse(item) : initialValue;
+        } catch (error) {
+            return initialValue;
+        }
+    });
+    useEffect(() => {
+        sessionStorage.setItem(key, JSON.stringify(state));
+    }, [key, state]);
+    return [state, setState];
+}
+
+// --- LÓGICA MATEMÁTICA: CALCULAR TIEMPO TRANSCURRIDO (SALTANDO FINES DE SEMANA) ---
+const getElapsedBusinessMs = (startDateStr: string) => {
+    const start = new Date(startDateStr);
+    const end = new Date();
+    let elapsedMs = 0;
+    let current = new Date(start);
+    
+    if (current > end) return 0; // Seguridad por si la fecha es futura
+
+    while (current < end) {
+        const nextDay = new Date(current);
+        nextDay.setHours(24, 0, 0, 0); // Salto al siguiente día a medianoche
+        
+        const stepEnd = nextDay < end ? nextDay : end;
+        const day = current.getDay();
+        
+        // 0 = Domingo, 6 = Sábado. Si NO es fin de semana, sumamos los milisegundos.
+        if (day !== 0 && day !== 6) {
+            elapsedMs += stepEnd.getTime() - current.getTime();
+        }
+        current = stepEnd;
+    }
+    return elapsedMs;
+};
+
+// --- COMPONENTE: CRONÓMETRO EN TIEMPO REAL ---
+const CaseCountdown: React.FC<{ caso: any }> = ({ caso }) => {
+    const [timeLeft, setTimeLeft] = useState<{h: number, m: number, s: number, isNegative: boolean} | null>(null);
+
+    useEffect(() => {
+        const match = caso.descripcion?.match(/Tiempo estimado:\s*([\d.]+)h/);
+        if (!match || caso.estado === 'cerrado') return;
+        
+        const estimatedMs = parseFloat(match[1]) * 60 * 60 * 1000;
+
+        const timer = setInterval(() => {
+            const elapsedMs = getElapsedBusinessMs(caso.created_at);
+            const remaining = estimatedMs - elapsedMs;
+
+            if (remaining <= 0) {
+                setTimeLeft({ h: 0, m: 0, s: 0, isNegative: true });
+            } else {
+                const h = Math.floor(remaining / (1000 * 60 * 60));
+                const m = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
+                const s = Math.floor((remaining % (1000 * 60)) / 1000);
+                setTimeLeft({ h, m, s, isNegative: false });
+            }
+        }, 1000);
+
+        return () => clearInterval(timer);
+    }, [caso]);
+
+    if (caso.estado === 'cerrado') return <span className="text-zinc-600 text-[10px] uppercase font-black">CASO CERRADO</span>;
+    if (!timeLeft) return <span className="text-zinc-600 text-[10px] uppercase font-black">Sin tiempo estimado</span>;
+
+    const color = timeLeft.isNegative ? 'text-red-500 animate-pulse' : 'text-green-500';
+    return (
+        <span className={`font-mono font-bold text-xs tracking-widest ${color}`}>
+            ⏱️ {timeLeft.h}h {String(timeLeft.m).padStart(2, '0')}m {String(timeLeft.s).padStart(2, '0')}s
+        </span>
+    );
+};
 
 // --- Iconos ---
 const BellIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" /></svg>;
@@ -17,12 +97,21 @@ const PaperClipIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" 
 const PencilIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 pointer-events-none"><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" /></svg>;
 const MenuIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" /></svg>;
 const SendIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" /></svg>;
+const AlertTriangleIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-16 h-16 text-white mb-4"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>;
 
 const scrollbarStyle = "overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-zinc-800 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-zinc-700 transition-colors";
 
-const Modal: React.FC<{ isOpen: boolean; onClose: () => void; children: React.ReactNode }> = ({ isOpen, onClose, children }) => {
+const Modal: React.FC<{ isOpen: boolean; onClose?: () => void; children: React.ReactNode; isCritical?: boolean }> = ({ isOpen, onClose, children, isCritical = false }) => {
     if (!isOpen) return null;
-    return <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 font-mono"><div className="bg-black border border-zinc-800 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] relative">{children}</div></div>;
+    return createPortal(
+        // Si es crítico, el z-index es absurdamente alto y el fondo es rojo sólido.
+        <div className={`fixed inset-0 ${isCritical ? 'bg-red-950/95 z-[999999]' : 'bg-black/80 backdrop-blur-sm z-[9999]'} flex items-center justify-center p-4 font-mono`}>
+            <div className={`border shadow-2xl w-full overflow-hidden flex flex-col relative ${isCritical ? 'max-w-xl bg-red-900 border-red-500 rounded-3xl p-10 text-center animate-in zoom-in duration-500' : 'max-w-2xl bg-black border-zinc-800 max-h-[90vh]'}`}>
+                {children}
+            </div>
+        </div>,
+        document.body
+    );
 };
 
 // ==========================================
@@ -38,15 +127,15 @@ const WorkerClientsView: React.FC<{ session: Session, userRole: string }> = ({ s
     const [loading, setLoading] = useState(true);
     const [actionLoading, setActionLoading] = useState(false);
 
-    const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-    const [formStep, setFormStep] = useState(1);
+    const [isCreateModalOpen, setIsCreateModalOpen] = useSessionState('w_client_modal', false);
+    const [formStep, setFormStep] = useSessionState('w_client_step', 1);
+    const [newClientData, setNewClientData] = useSessionState('w_client_data', { primer_nombre: '', segundo_nombre: '', primer_apellido: '', segundo_apellido: '', cedula: '', email: '' });
+    const [clientPassword, setClientPassword] = useSessionState('w_client_pwd', '');
+    const [activeCaseHistory, setActiveCaseHistory] = useSessionState<any | null>('w_client_case_hist', null);
+
     const [imagePreview, setImagePreview] = useState<string | null>(null);
     const [imageFile, setImageFile] = useState<File | null>(null);
-    const [newClientData, setNewClientData] = useState({ primer_nombre: '', segundo_nombre: '', primer_apellido: '', segundo_apellido: '', cedula: '', email: '' });
-    const [clientPassword, setClientPassword] = useState('');
     const photoInputRef = useRef<HTMLInputElement>(null);
-
-    const [activeCaseHistory, setActiveCaseHistory] = useState<any | null>(null);
     const [caseUpdates, setCaseUpdates] = useState<any[]>([]);
 
     const fetchData = useCallback(async () => {
@@ -71,13 +160,7 @@ const WorkerClientsView: React.FC<{ session: Session, userRole: string }> = ({ s
 
     const handleRequestAccess = async (tipo: 'info_personal' | 'acceso_caso', clientId: string, caseId: string | null = null) => {
         setActionLoading(true);
-        const { error } = await supabase.from('peticiones_acceso').insert({
-            trabajador_id: session.user.id,
-            cliente_id: clientId,
-            caso_id: caseId,
-            tipo: tipo,
-            estado: 'pendiente'
-        });
+        const { error } = await supabase.from('peticiones_acceso').insert({ trabajador_id: session.user.id, cliente_id: clientId, caso_id: caseId, tipo: tipo, estado: 'pendiente' });
         if (error) alert(error.message);
         else await fetchData();
         setActionLoading(false);
@@ -99,28 +182,15 @@ const WorkerClientsView: React.FC<{ session: Session, userRole: string }> = ({ s
         }
 
         const { error } = await supabase.from('peticiones_acceso').insert({
-            trabajador_id: session.user.id,
-            tipo: 'nuevo_cliente',
-            estado: 'pendiente',
-            temp_email: newClientData.email,
-            temp_password: clientPassword,
-            temp_primer_nombre: newClientData.primer_nombre,
-            temp_segundo_nombre: newClientData.segundo_nombre,
-            temp_primer_apellido: newClientData.primer_apellido,
-            temp_segundo_apellido: newClientData.segundo_apellido,
-            temp_cedula: newClientData.cedula,
-            temp_foto_url: final_photo_url
+            trabajador_id: session.user.id, tipo: 'nuevo_cliente', estado: 'pendiente',
+            temp_email: newClientData.email, temp_password: clientPassword, temp_primer_nombre: newClientData.primer_nombre, temp_segundo_nombre: newClientData.segundo_nombre,
+            temp_primer_apellido: newClientData.primer_apellido, temp_segundo_apellido: newClientData.segundo_apellido, temp_cedula: newClientData.cedula, temp_foto_url: final_photo_url
         });
 
-        if (error) {
-            alert(`Error al guardar en base de datos: ${error.message}`);
-        } else {
-            setIsCreateModalOpen(false);
-            setFormStep(1);
-            setImagePreview(null);
-            setImageFile(null);
-            setNewClientData({ primer_nombre: '', segundo_nombre: '', primer_apellido: '', segundo_apellido: '', cedula: '', email: '' });
-            setClientPassword('');
+        if (error) { alert(`Error al guardar en base de datos: ${error.message}`); } 
+        else {
+            setIsCreateModalOpen(false); setFormStep(1); setImagePreview(null); setImageFile(null);
+            setNewClientData({ primer_nombre: '', segundo_nombre: '', primer_apellido: '', segundo_apellido: '', cedula: '', email: '' }); setClientPassword('');
             await fetchData();
         }
         setActionLoading(false);
@@ -168,13 +238,8 @@ const WorkerClientsView: React.FC<{ session: Session, userRole: string }> = ({ s
                         </div>
                         <div className="flex justify-between items-start mb-6">
                             <div>
-                                <h3 className="text-xl font-bold uppercase tracking-widest text-white flex items-center gap-2">
-                                    <LockIcon />
-                                    {pet.temp_primer_nombre} {pet.temp_primer_apellido}
-                                </h3>
-                                <p className="text-zinc-500 text-xs font-mono mt-1">
-                                    {pet.temp_cedula} | {pet.temp_email}
-                                </p>
+                                <h3 className="text-xl font-bold uppercase tracking-widest text-white flex items-center gap-2"><LockIcon /> {pet.temp_primer_nombre} {pet.temp_primer_apellido}</h3>
+                                <p className="text-zinc-500 text-xs font-mono mt-1">{pet.temp_cedula} | {pet.temp_email}</p>
                             </div>
                         </div>
                     </div>
@@ -194,16 +259,13 @@ const WorkerClientsView: React.FC<{ session: Session, userRole: string }> = ({ s
                     return (
                         <div key={client.id} className={`bg-black border border-zinc-800 p-6 flex flex-col relative overflow-hidden transition-all ${isPendingClient ? 'opacity-50 grayscale' : ''}`}>
                             {isPendingClient && (
-                                <div className="absolute top-4 right-4 bg-yellow-900/50 text-yellow-500 border border-yellow-900 px-3 py-1 text-[8px] font-black uppercase tracking-widest">
-                                    En Revisión de Admin
-                                </div>
+                                <div className="absolute top-4 right-4 bg-yellow-900/50 text-yellow-500 border border-yellow-900 px-3 py-1 text-[8px] font-black uppercase tracking-widest">En Revisión de Admin</div>
                             )}
 
                             <div className="flex justify-between items-start mb-6">
                                 <div>
                                     <h3 className="text-xl font-bold uppercase tracking-widest text-white flex items-center gap-2">
-                                        {hasInfoAccess ? <UnlockIcon /> : <LockIcon />}
-                                        {client.primer_nombre} {client.primer_apellido}
+                                        {hasInfoAccess ? <UnlockIcon /> : <LockIcon />} {client.primer_nombre} {client.primer_apellido}
                                     </h3>
                                     <p className="text-zinc-500 text-xs font-mono mt-1">
                                         {hasInfoAccess ? `${client.cedula} | ${client.email}` : '***-******-* | *********@***.***'}
@@ -217,9 +279,7 @@ const WorkerClientsView: React.FC<{ session: Session, userRole: string }> = ({ s
                                         ) : infoPet?.estado === 'rechazado' ? (
                                             <span className="text-red-500 text-[10px] font-bold uppercase tracking-widest">Denegado</span>
                                         ) : (
-                                            <button onClick={() => handleRequestAccess('info_personal', client.id)} disabled={actionLoading} className="bg-white hover:bg-zinc-300 text-black py-2 px-6 text-[10px] font-black uppercase tracking-widest transition-colors disabled:opacity-50">
-                                                Pedir Acceso
-                                            </button>
+                                            <button onClick={() => handleRequestAccess('info_personal', client.id)} disabled={actionLoading} className="bg-white hover:bg-zinc-300 text-black py-2 px-6 text-[10px] font-black uppercase tracking-widest transition-colors disabled:opacity-50">Pedir Acceso</button>
                                         )}
                                     </div>
                                 )}
@@ -245,14 +305,10 @@ const WorkerClientsView: React.FC<{ session: Session, userRole: string }> = ({ s
                                                         </div>
                                                         <div>
                                                             {hasCaseAccess ? (
-                                                                <button onClick={() => openCaseHistory(c)} className="text-green-500 hover:text-green-400 text-[10px] font-bold uppercase tracking-widest transition-colors border border-green-900/50 px-3 py-1">
-                                                                    Abrir Caso ›
-                                                                </button>
+                                                                <button onClick={() => openCaseHistory(c)} className="text-green-500 hover:text-green-400 text-[10px] font-bold uppercase tracking-widest transition-colors border border-green-900/50 px-3 py-1">Abrir Caso ›</button>
                                                             ) : (
                                                                 casePet?.estado === 'pendiente' ? <span className="text-yellow-500 text-[10px] font-bold uppercase tracking-widest">⏳ Revisando</span> :
-                                                                <button onClick={() => handleRequestAccess('acceso_caso', client.id, c.id)} disabled={actionLoading} className="text-zinc-400 hover:text-white text-[10px] font-bold uppercase tracking-widest transition-colors border border-zinc-700 px-3 py-1">
-                                                                    Pedir Acceso
-                                                                </button>
+                                                                <button onClick={() => handleRequestAccess('acceso_caso', client.id, c.id)} disabled={actionLoading} className="text-zinc-400 hover:text-white text-[10px] font-bold uppercase tracking-widest transition-colors border border-zinc-700 px-3 py-1">Pedir Acceso</button>
                                                             )}
                                                         </div>
                                                     </div>
@@ -272,7 +328,6 @@ const WorkerClientsView: React.FC<{ session: Session, userRole: string }> = ({ s
                     <div className="p-8 pb-4 flex-shrink-0">
                         <h2 className="text-2xl font-bold mb-2 italic tracking-widest uppercase">REGISTRAR NUEVO CLIENTE</h2>
                         <p className="text-zinc-500 text-xs mb-6">El perfil requerirá aprobación del Administrador.</p>
-                        
                         <div className="flex border-b border-zinc-800">
                             <div className={`w-1/2 text-center pb-2 border-b-2 ${formStep === 1 ? 'border-zinc-500 text-white' : 'border-transparent text-zinc-600'} font-bold text-xs tracking-widest transition-colors`}>01. PERFIL</div>
                             <div className={`w-1/2 text-center pb-2 border-b-2 ${formStep === 2 ? 'border-zinc-500 text-white' : 'border-transparent text-zinc-600'} font-bold text-xs tracking-widest transition-colors`}>02. ACCESO</div>
@@ -289,46 +344,24 @@ const WorkerClientsView: React.FC<{ session: Session, userRole: string }> = ({ s
                                         <div className="w-32 h-32 rounded-full border border-zinc-800 flex items-center justify-center text-zinc-600 text-[10px] tracking-widest mb-4">NO IMAGE</div>
                                     )}
                                     <input type="file" ref={photoInputRef} className="hidden" accept="image/*" onChange={handleImageChange} />
-                                    <button type="button" onClick={() => photoInputRef.current?.click()} className="bg-zinc-800 hover:bg-zinc-700 text-white text-[10px] px-6 py-2 tracking-widest font-bold uppercase transition-colors">
-                                        CARGAR FOTOGRAFÍA
-                                    </button>
+                                    <button type="button" onClick={() => photoInputRef.current?.click()} className="bg-zinc-800 hover:bg-zinc-700 text-white text-[10px] px-6 py-2 tracking-widest font-bold uppercase transition-colors">CARGAR FOTOGRAFÍA</button>
                                 </div>
                                 <div className="grid grid-cols-2 gap-x-8 gap-y-12 pb-8">
-                                    <div>
-                                        <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">PRIMER NOMBRE</label>
-                                        <input type="text" required value={newClientData.primer_nombre} onChange={e => setNewClientData({...newClientData, primer_nombre: e.target.value})} className="w-full bg-transparent border-b border-zinc-800 text-white py-1 focus:outline-none focus:border-zinc-500" />
-                                    </div>
-                                    <div>
-                                        <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">SEGUNDO NOMBRE</label>
-                                        <input type="text" value={newClientData.segundo_nombre} onChange={e => setNewClientData({...newClientData, segundo_nombre: e.target.value})} className="w-full bg-transparent border-b border-zinc-800 text-white py-1 focus:outline-none focus:border-zinc-500" />
-                                    </div>
-                                    <div>
-                                        <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">PRIMER APELLIDO</label>
-                                        <input type="text" required value={newClientData.primer_apellido} onChange={e => setNewClientData({...newClientData, primer_apellido: e.target.value})} className="w-full bg-transparent border-b border-zinc-800 text-white py-1 focus:outline-none focus:border-zinc-500" />
-                                    </div>
-                                    <div>
-                                        <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">SEGUNDO APELLIDO</label>
-                                        <input type="text" value={newClientData.segundo_apellido} onChange={e => setNewClientData({...newClientData, segundo_apellido: e.target.value})} className="w-full bg-transparent border-b border-zinc-800 text-white py-1 focus:outline-none focus:border-zinc-500" />
-                                    </div>
-                                    <div className="col-span-2">
-                                        <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">DNI / CÉDULA</label>
-                                        <input type="text" required value={newClientData.cedula} onChange={e => setNewClientData({...newClientData, cedula: e.target.value})} className="w-full bg-transparent border-b border-zinc-800 text-white py-1 focus:outline-none focus:border-zinc-500" />
-                                    </div>
+                                    <div><label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">PRIMER NOMBRE</label><input type="text" required value={newClientData.primer_nombre} onChange={e => setNewClientData({...newClientData, primer_nombre: e.target.value})} className="w-full bg-transparent border-b border-zinc-800 text-white py-1 focus:outline-none focus:border-zinc-500" /></div>
+                                    <div><label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">SEGUNDO NOMBRE</label><input type="text" value={newClientData.segundo_nombre} onChange={e => setNewClientData({...newClientData, segundo_nombre: e.target.value})} className="w-full bg-transparent border-b border-zinc-800 text-white py-1 focus:outline-none focus:border-zinc-500" /></div>
+                                    <div><label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">PRIMER APELLIDO</label><input type="text" required value={newClientData.primer_apellido} onChange={e => setNewClientData({...newClientData, primer_apellido: e.target.value})} className="w-full bg-transparent border-b border-zinc-800 text-white py-1 focus:outline-none focus:border-zinc-500" /></div>
+                                    <div><label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">SEGUNDO APELLIDO</label><input type="text" value={newClientData.segundo_apellido} onChange={e => setNewClientData({...newClientData, segundo_apellido: e.target.value})} className="w-full bg-transparent border-b border-zinc-800 text-white py-1 focus:outline-none focus:border-zinc-500" /></div>
+                                    <div className="col-span-2"><label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">DNI / CÉDULA</label><input type="text" required value={newClientData.cedula} onChange={e => setNewClientData({...newClientData, cedula: e.target.value})} className="w-full bg-transparent border-b border-zinc-800 text-white py-1 focus:outline-none focus:border-zinc-500" /></div>
                                 </div>
                             </>
                         ) : (
                             <div className="grid grid-cols-1 gap-y-12 pb-8">
-                                <div>
-                                    <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">EMAIL CORPORATIVO</label>
-                                    <input type="email" required value={newClientData.email} onChange={e => setNewClientData({...newClientData, email: e.target.value})} className="w-full bg-transparent border-b border-zinc-800 text-white py-1 focus:outline-none focus:border-zinc-500" />
-                                </div>
+                                <div><label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">EMAIL CORPORATIVO</label><input type="email" required value={newClientData.email} onChange={e => setNewClientData({...newClientData, email: e.target.value})} className="w-full bg-transparent border-b border-zinc-800 text-white py-1 focus:outline-none focus:border-zinc-500" /></div>
                                 <div>
                                     <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">CONTRASEÑA PROVISIONAL</label>
                                     <input type="text" required value={clientPassword} onChange={e => setClientPassword(e.target.value)} className="w-full bg-transparent border-b border-zinc-800 text-white py-1 focus:outline-none focus:border-zinc-500" />
                                     <div className="mt-4 p-4 border border-zinc-900 bg-zinc-950/50">
-                                        <p className={`text-[10px] font-bold tracking-widest uppercase transition-colors ${isPasswordValid ? 'text-white' : 'text-zinc-600'}`}>
-                                            {isPasswordValid ? '✓ CUMPLE: 6 DÍGITOS IDÉNTICOS' : '✗ DEBE SER UN MISMO NÚMERO 6 VECES (Ej. 555555)'}
-                                        </p>
+                                        <p className={`text-[10px] font-bold tracking-widest uppercase transition-colors ${isPasswordValid ? 'text-white' : 'text-zinc-600'}`}>{isPasswordValid ? '✓ CUMPLE: 6 DÍGITOS IDÉNTICOS' : '✗ DEBE SER UN MISMO NÚMERO 6 VECES (Ej. 555555)'}</p>
                                     </div>
                                 </div>
                             </div>
@@ -352,27 +385,18 @@ const WorkerClientsView: React.FC<{ session: Session, userRole: string }> = ({ s
                 {activeCaseHistory && (
                     <div className="flex flex-col h-[85vh]">
                         <div className="p-6 bg-zinc-950 border-b border-zinc-900 flex-shrink-0">
-                            <button onClick={() => setActiveCaseHistory(null)} className="text-zinc-500 hover:text-white text-[10px] uppercase tracking-widest mb-2 flex items-center gap-2 transition-colors">
-                                ‹ Volver a la Lista
-                            </button>
+                            <button onClick={() => setActiveCaseHistory(null)} className="text-zinc-500 hover:text-white text-[10px] uppercase tracking-widest mb-2 flex items-center gap-2 transition-colors">‹ Volver a la Lista</button>
                             <h2 className="text-lg font-bold italic tracking-widest uppercase text-white">HISTORIAL: {activeCaseHistory.titulo}</h2>
                         </div>
                         <div className={`p-6 flex-grow bg-black space-y-8 ${scrollbarStyle}`}>
                             {caseUpdates.filter(u => u.estado_aprobacion === 'aprobado').length === 0 ? (
-                                <div className="p-8 border border-dashed border-zinc-900 text-center text-zinc-600 text-xs tracking-widest uppercase">
-                                    No hay archivos aprobados para este caso.
-                                </div>
+                                <div className="p-8 border border-dashed border-zinc-900 text-center text-zinc-600 text-xs tracking-widest uppercase">No hay archivos aprobados para este caso.</div>
                             ) : (
                                 caseUpdates.filter(u => u.estado_aprobacion === 'aprobado').map((u) => (
                                     <div key={u.id} className="relative pl-6 border-l border-zinc-800">
                                         <div className="absolute w-2 h-2 rounded-full -left-[5px] top-1.5 ring-4 ring-black bg-green-500"></div>
-                                        
-                                        <div className="flex justify-between items-start">
-                                            <p className="text-[10px] text-zinc-600 font-mono mb-1">{new Date(u.created_at).toLocaleString()}</p>
-                                        </div>
-                                        
+                                        <div className="flex justify-between items-start"><p className="text-[10px] text-zinc-600 font-mono mb-1">{new Date(u.created_at).toLocaleString()}</p></div>
                                         <span className="bg-green-900/30 text-green-500 px-2 py-0.5 rounded text-[8px] uppercase tracking-widest font-black inline-block mb-2">Aprobado</span>
-                                        
                                         <p className="text-sm text-zinc-300 mt-1">{u.descripcion}</p>
                                         {u.file_url && (
                                             <a href={u.file_url} target="_blank" rel="noreferrer" className="inline-flex items-center text-[10px] bg-zinc-900 border border-zinc-800 px-3 py-1.5 mt-3 text-blue-400 hover:bg-zinc-800 uppercase tracking-widest transition-colors">
@@ -391,18 +415,19 @@ const WorkerClientsView: React.FC<{ session: Session, userRole: string }> = ({ s
 };
 
 // ==========================================
-// VISTA 2: CASOS ASIGNADOS
+// VISTA 2: CASOS ASIGNADOS CON CRONÓMETROS (PUNTOS 5 Y 6)
 // ==========================================
-const WorkerAssignedCasesView: React.FC<{ session: Session }> = ({ session }) => {
+const WorkerAssignedCasesView: React.FC<{ session: Session, openSpecificCase: any, setOpenSpecificCase: any }> = ({ session, openSpecificCase, setOpenSpecificCase }) => {
     const [assignedClientsDict, setAssignedClientsDict] = useState<{ [key: string]: { client: any, cases: any[] } }>({});
-    const [expandedClientId, setExpandedClientId] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
 
-    const [activeCaseHistory, setActiveCaseHistory] = useState<any | null>(null);
+    const [expandedClientId, setExpandedClientId] = useSessionState<string | null>('w_cases_expanded', null);
+    const [activeCaseHistory, setActiveCaseHistory] = useSessionState<any | null>('w_cases_history', null);
+    const [updateDesc, setUpdateDesc] = useSessionState('w_cases_desc', '');
+    const [editingUpdate, setEditingUpdate] = useSessionState<any>('w_cases_edit', null);
+
     const [caseUpdates, setCaseUpdates] = useState<any[]>([]);
-    const [updateDesc, setUpdateDesc] = useState('');
     const [uploadFile, setUploadFile] = useState<File | null>(null);
-    const [editingUpdate, setEditingUpdate] = useState<any>(null);
     const [actionLoading, setActionLoading] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -424,6 +449,15 @@ const WorkerAssignedCasesView: React.FC<{ session: Session }> = ({ session }) =>
     }, [session.user.id]);
 
     useEffect(() => { fetchAssignedData(); }, [fetchAssignedData]);
+
+    // EFECTO PARA ABRIR AUTOMÁTICAMENTE EL CASO CUANDO VIENE DEL BLOQUEO ROJO
+    useEffect(() => {
+        if (openSpecificCase) {
+            setExpandedClientId(openSpecificCase.cliente_id);
+            openCaseHistory(openSpecificCase);
+            setOpenSpecificCase(null); // Consumimos la acción
+        }
+    }, [openSpecificCase]);
 
     const openCaseHistory = async (caso: any) => {
         setActiveCaseHistory(caso);
@@ -454,7 +488,7 @@ const WorkerAssignedCasesView: React.FC<{ session: Session }> = ({ session }) =>
     };
 
     return (
-        <div className="animate-in fade-in duration-500 font-mono text-white max-w-4xl mx-auto w-full">
+        <div className="animate-in fade-in duration-500 font-mono text-white max-w-4xl mx-auto w-full h-full flex flex-col">
             <header className="flex justify-between items-center mb-8 border-b border-zinc-900 pb-4">
                 <div>
                     <h1 className="text-3xl font-black uppercase tracking-tighter italic">Mis Casos Asignados</h1>
@@ -465,7 +499,7 @@ const WorkerAssignedCasesView: React.FC<{ session: Session }> = ({ session }) =>
             {loading ? ( <div className="text-center p-12 text-zinc-500 animate-pulse">Cargando asignaciones...</div> ) : Object.values(assignedClientsDict).length === 0 ? (
                 <div className="bg-black border border-zinc-900 p-8 text-center text-zinc-500 uppercase tracking-widest text-xs"> No tienes casos asignados actualmente. </div>
             ) : (
-                <div className={`space-y-4 ${scrollbarStyle}`}>
+                <div className={`space-y-4 flex-grow overflow-y-auto pr-2 ${scrollbarStyle}`}>
                     {Object.values(assignedClientsDict).map(({client, cases}) => (
                         <div key={client.id} className="bg-zinc-950 mb-4 border border-zinc-800">
                             <div className="flex bg-zinc-900 items-center hover:bg-zinc-800 transition-colors cursor-pointer p-4" onClick={() => setExpandedClientId(expandedClientId === client.id ? null : client.id)}>
@@ -475,15 +509,17 @@ const WorkerAssignedCasesView: React.FC<{ session: Session }> = ({ session }) =>
                                 </div>
                             </div>
                             {expandedClientId === client.id && (
-                                <div className="bg-black">
+                                <div className="bg-black divide-y divide-zinc-900">
                                     {cases.map(c => (
-                                        <div key={c.id} className="flex border-b border-zinc-900 last:border-0 hover:bg-zinc-900/50 transition-colors cursor-pointer p-4 pl-8" onDoubleClick={() => openCaseHistory(c)}>
+                                        <div key={c.id} className="flex flex-col sm:flex-row hover:bg-zinc-900/50 transition-colors cursor-pointer p-5 pl-8 group" onDoubleClick={() => openCaseHistory(c)}>
                                             <div className="flex-grow">
                                                 <h4 className="font-bold text-sm text-white flex items-center gap-2"><UnlockIcon /> {c.titulo}</h4>
-                                                <p className="text-xs text-zinc-500 mt-1 line-clamp-1">{c.descripcion}</p>
+                                                <p className="text-xs text-zinc-500 mt-1 line-clamp-1 pr-4">{c.descripcion}</p>
                                             </div>
-                                            <div className="flex items-center">
-                                                <span className="text-zinc-600 text-[10px] uppercase tracking-widest opacity-0 group-hover:opacity-100">Doble clic para abrir ›</span>
+                                            <div className="flex flex-col sm:items-end mt-4 sm:mt-0 flex-shrink-0 min-w-[150px]">
+                                                {/* CRONÓMETRO EN TIEMPO REAL INYECTADO AQUÍ */}
+                                                <CaseCountdown caso={c} />
+                                                <span className="text-zinc-600 text-[9px] uppercase tracking-widest opacity-0 group-hover:opacity-100 mt-2">Doble clic para abrir ›</span>
                                             </div>
                                         </div>
                                     ))}
@@ -494,73 +530,73 @@ const WorkerAssignedCasesView: React.FC<{ session: Session }> = ({ session }) =>
                 </div>
             )}
 
-            <Modal isOpen={!!activeCaseHistory} onClose={() => { setActiveCaseHistory(null); setEditingUpdate(null); setUpdateDesc(''); }}>
-                {activeCaseHistory && (
-                    <div className="flex flex-col h-[85vh]">
-                        <div className="p-6 bg-zinc-950 border-b border-zinc-900">
-                            <button onClick={() => { setActiveCaseHistory(null); setEditingUpdate(null); setUpdateDesc(''); }} className="text-zinc-500 hover:text-white text-[10px] uppercase tracking-widest mb-2 flex items-center gap-2 transition-colors">
-                                ‹ Volver a la Lista
-                            </button>
-                            <h2 className="text-lg font-bold italic tracking-widest uppercase text-white">HISTORIAL: {activeCaseHistory.titulo}</h2>
-                        </div>
-                        <div className={`p-6 flex-grow bg-black space-y-8 ${scrollbarStyle}`}>
-                            {caseUpdates.map((u) => (
-                                <div key={u.id} className="relative pl-6 border-l border-zinc-800 group/item">
-                                    <div className={`absolute w-2 h-2 rounded-full -left-[5px] top-1.5 ring-4 ring-black ${u.estado_aprobacion === 'pendiente' ? 'bg-yellow-500' : u.estado_aprobacion === 'rechazado' ? 'bg-red-500' : 'bg-green-500'}`}></div>
-                                    
-                                    <div className="flex justify-between items-start">
-                                        <p className="text-[10px] text-zinc-600 font-mono mb-1">{new Date(u.created_at).toLocaleString()}</p>
-                                        {u.estado_aprobacion === 'rechazado' && (
-                                            <button type="button" onClick={() => { setEditingUpdate(u); setUpdateDesc(u.descripcion); }} className="text-zinc-600 hover:text-white transition-colors opacity-0 group-hover/item:opacity-100" title="Editar y reenviar"><PencilIcon /></button>
+            {/* Este Modal se comporta normalmente pero usa z-[9999999] para ponerse sobre el Bloqueador Rojo si es necesario */}
+            {activeCaseHistory && (
+                <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[9999999] flex items-center justify-center p-4 font-mono">
+                    <div className="bg-black border border-zinc-800 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] relative animate-in zoom-in duration-300">
+                        <div className="flex flex-col h-[85vh]">
+                            <div className="p-6 bg-zinc-950 border-b border-zinc-900">
+                                <button onClick={() => { setActiveCaseHistory(null); setEditingUpdate(null); setUpdateDesc(''); }} className="text-zinc-500 hover:text-white text-[10px] uppercase tracking-widest mb-2 flex items-center gap-2 transition-colors">
+                                    ‹ Volver a la Lista
+                                </button>
+                                <h2 className="text-lg font-bold italic tracking-widest uppercase text-white">HISTORIAL: {activeCaseHistory.titulo}</h2>
+                            </div>
+                            <div className={`p-6 flex-grow bg-black space-y-8 ${scrollbarStyle}`}>
+                                {caseUpdates.map((u) => (
+                                    <div key={u.id} className="relative pl-6 border-l border-zinc-800 group/item">
+                                        <div className={`absolute w-2 h-2 rounded-full -left-[5px] top-1.5 ring-4 ring-black ${u.estado_aprobacion === 'pendiente' ? 'bg-yellow-500' : u.estado_aprobacion === 'rechazado' ? 'bg-red-500' : 'bg-green-500'}`}></div>
+                                        <div className="flex justify-between items-start">
+                                            <p className="text-[10px] text-zinc-600 font-mono mb-1">{new Date(u.created_at).toLocaleString()}</p>
+                                            {u.estado_aprobacion === 'rechazado' && (
+                                                <button type="button" onClick={() => { setEditingUpdate(u); setUpdateDesc(u.descripcion); }} className="text-zinc-600 hover:text-white transition-colors opacity-0 group-hover/item:opacity-100" title="Editar y reenviar"><PencilIcon /></button>
+                                            )}
+                                        </div>
+                                        {u.estado_aprobacion === 'pendiente' && <span className="bg-yellow-900/30 text-yellow-500 px-2 py-0.5 rounded text-[8px] uppercase tracking-widest font-black inline-block mb-2">Pendiente de Aprobación</span>}
+                                        {u.estado_aprobacion === 'rechazado' && <div className="text-red-400 text-[10px] tracking-widest font-mono mb-2 p-2 border border-red-900/50 bg-red-950/20">RECHAZADO: {u.observacion}</div>}
+                                        {u.estado_aprobacion === 'aprobado' && <span className="bg-green-900/30 text-green-500 px-2 py-0.5 rounded text-[8px] uppercase tracking-widest font-black inline-block mb-2">Aprobado</span>}
+                                        <p className="text-sm text-zinc-300 mt-1">{u.descripcion}</p>
+                                        {u.file_url && (
+                                            <a href={u.file_url} target="_blank" rel="noreferrer" className="inline-flex items-center text-[10px] bg-zinc-900 border border-zinc-800 px-3 py-1.5 mt-3 text-blue-400 hover:bg-zinc-800 uppercase tracking-widest transition-colors">
+                                                <DocumentIcon /> {u.file_name}
+                                            </a>
                                         )}
                                     </div>
-                                    
-                                    {u.estado_aprobacion === 'pendiente' && <span className="bg-yellow-900/30 text-yellow-500 px-2 py-0.5 rounded text-[8px] uppercase tracking-widest font-black inline-block mb-2">Pendiente de Aprobación</span>}
-                                    {u.estado_aprobacion === 'rechazado' && <div className="text-red-400 text-[10px] tracking-widest font-mono mb-2 p-2 border border-red-900/50 bg-red-950/20">RECHAZADO: {u.observacion}</div>}
-                                    {u.estado_aprobacion === 'aprobado' && <span className="bg-green-900/30 text-green-500 px-2 py-0.5 rounded text-[8px] uppercase tracking-widest font-black inline-block mb-2">Aprobado</span>}
-                                    
-                                    <p className="text-sm text-zinc-300 mt-1">{u.descripcion}</p>
-                                    {u.file_url && (
-                                        <a href={u.file_url} target="_blank" rel="noreferrer" className="inline-flex items-center text-[10px] bg-zinc-900 border border-zinc-800 px-3 py-1.5 mt-3 text-blue-400 hover:bg-zinc-800 uppercase tracking-widest transition-colors">
-                                            <DocumentIcon /> {u.file_name}
-                                        </a>
-                                    )}
-                                </div>
-                            ))}
-                        </div>
-                        <div className="p-4 bg-zinc-950 border-t border-zinc-900">
-                            <form onSubmit={handleAddOrEditUpdate} className="flex flex-col gap-3">
-                                {editingUpdate && <div className="text-[10px] text-yellow-500 uppercase font-black tracking-widest px-2">Corrigiendo Registro... <button type="button" onClick={() => {setEditingUpdate(null); setUpdateDesc('');}} className="ml-4 text-zinc-500 hover:text-white">Cancelar</button></div>}
-                                <div className="flex items-end gap-3">
-                                    <input type="file" ref={fileInputRef} className="hidden" onChange={(e) => setUploadFile(e.target.files![0])} />
-                                    <button type="button" onClick={() => fileInputRef.current?.click()} className={`p-3 border border-zinc-800 transition-colors ${uploadFile ? 'text-green-500' : 'text-zinc-500 hover:text-white'}`}><PaperClipIcon /></button>
-                                    <input type="text" placeholder="Añadir actualización al caso..." className="flex-grow bg-transparent border-b border-zinc-800 py-2 text-white focus:outline-none transition-colors" value={updateDesc} onChange={(e) => setUpdateDesc(e.target.value)} required />
-                                    <button disabled={actionLoading} className="bg-white text-black font-black px-6 py-2 text-[10px] uppercase tracking-widest hover:bg-zinc-300 transition-colors disabled:opacity-50">
-                                        {editingUpdate ? 'Reenviar' : 'Enviar'}
-                                    </button>
-                                </div>
-                            </form>
+                                ))}
+                            </div>
+                            <div className="p-4 bg-zinc-950 border-t border-zinc-900">
+                                <form onSubmit={handleAddOrEditUpdate} className="flex flex-col gap-3">
+                                    {editingUpdate && <div className="text-[10px] text-yellow-500 uppercase font-black tracking-widest px-2">Corrigiendo Registro... <button type="button" onClick={() => {setEditingUpdate(null); setUpdateDesc('');}} className="ml-4 text-zinc-500 hover:text-white">Cancelar</button></div>}
+                                    <div className="flex items-end gap-3">
+                                        <input type="file" ref={fileInputRef} className="hidden" onChange={(e) => setUploadFile(e.target.files![0])} />
+                                        <button type="button" onClick={() => fileInputRef.current?.click()} className={`p-3 border border-zinc-800 transition-colors ${uploadFile ? 'text-green-500' : 'text-zinc-500 hover:text-white'}`}><PaperClipIcon /></button>
+                                        <input type="text" placeholder="Añadir actualización al caso..." className="flex-grow bg-transparent border-b border-zinc-800 py-2 text-white focus:outline-none transition-colors" value={updateDesc} onChange={(e) => setUpdateDesc(e.target.value)} required />
+                                        <button disabled={actionLoading} className="bg-white text-black font-black px-6 py-2 text-[10px] uppercase tracking-widest hover:bg-zinc-300 transition-colors disabled:opacity-50">
+                                            {editingUpdate ? 'Reenviar' : 'Enviar'}
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
                         </div>
                     </div>
-                )}
-            </Modal>
+                </div>
+            )}
         </div>
     );
 };
 
 // ==========================================
-// VISTA: CHAT INTERNO (TRABAJADOR - SOLUCIÓN CHAT REAL)
+// VISTA: CHAT INTERNO 
 // ==========================================
 const WorkerChatView: React.FC<{ session: Session }> = ({ session }) => {
     const [adminProfile, setAdminProfile] = useState<any>(null);
     const [assignedClients, setAssignedClients] = useState<any[]>([]);
     const [assignedCases, setAssignedCases] = useState<any[]>([]);
 
-    const [selectedContact, setSelectedContact] = useState<any>(null);
-    const [chatStep, setChatStep] = useState<'case' | 'chat'>('case');
-    const [selectedCase, setSelectedCase] = useState<any>(null);
+    const [selectedContact, setSelectedContact] = useSessionState<any>('w_chat_contact', null);
+    const [chatStep, setChatStep] = useSessionState<'case' | 'chat'>('w_chat_step', 'case');
+    const [selectedCase, setSelectedCase] = useSessionState<any>('w_chat_case', null);
+    const [message, setMessage] = useSessionState('w_chat_msg', '');
     
-    const [message, setMessage] = useState('');
     const [messages, setMessages] = useState<any[]>([]);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -618,9 +654,7 @@ const WorkerChatView: React.FC<{ session: Session }> = ({ session }) => {
         if (!message.trim() || !selectedContact) return;
         const msgText = message.trim();
         setMessage('');
-        const { error } = await supabase.from('chat_messages').insert([{
-            sender_id: session.user.id, receiver_id: selectedContact.id, case_id: selectedCase ? selectedCase.id : null, message: msgText
-        }]);
+        const { error } = await supabase.from('chat_messages').insert([{ sender_id: session.user.id, receiver_id: selectedContact.id, case_id: selectedCase ? selectedCase.id : null, message: msgText }]);
         if (error) alert("Error al enviar mensaje");
     };
 
@@ -748,14 +782,11 @@ const WorkerChatView: React.FC<{ session: Session }> = ({ session }) => {
 };
 
 // ==========================================
-// COMPONENTE PRINCIPAL DEL DASHBOARD
+// COMPONENTE PRINCIPAL DEL DASHBOARD (CON SISTEMA DE ALERTAS GLOBALES)
 // ==========================================
 const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
     
-    const [activeView, setActiveView] = useState(() => {
-        const savedView = sessionStorage.getItem('workerActiveView');
-        return savedView ? savedView : 'HOME';
-    });
+    const [activeView, setActiveView] = useSessionState('workerActiveView', 'HOME');
 
     const [userRole, setUserRole] = useState<string>('');
     const [profileMenuOpen, setProfileMenuOpen] = useState(false);
@@ -765,9 +796,14 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
     const [notificationsOpen, setNotificationsOpen] = useState(false);
     const [notifications, setNotifications] = useState<any[]>([]);
 
-    useEffect(() => {
-        sessionStorage.setItem('workerActiveView', activeView);
-    }, [activeView]);
+    // --- ESTADOS PARA SISTEMA GLOBAL DE ALERTAS (PUNTO 6) ---
+    const [criticalAlertCase, setCriticalCase] = useState<any | null>(null);
+    const [warningAlerts, setWarningAlerts] = useState<any[]>([]); // Array para 75%, 50%, 25%
+    const [dismissedWarnings, setDismissedWarnings] = useState<Record<string, boolean>>(() => {
+        try { return JSON.parse(localStorage.getItem('dismissedWarnings') || '{}'); } catch(e) { return {}; }
+    });
+    // Función que conecta el Bloqueador Rojo con el Historial del Caso
+    const [openSpecificCase, setOpenSpecificCase] = useState<any | null>(null);
 
     useEffect(() => {
         const setupSecurityAndProfile = async () => {
@@ -816,6 +852,69 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
         fetchNotifications();
     }, [session.user.id]);
 
+    // --- SCANNER EN SEGUNDO PLANO PARA ALERTAS DE CASOS ---
+    useEffect(() => {
+        const scanCasesForAlerts = async () => {
+            const { data: asignaciones } = await supabase.from('asignaciones_casos').select('case_id').eq('abogado_id', session.user.id);
+            if (!asignaciones || asignaciones.length === 0) return;
+            
+            const caseIds = asignaciones.map(a => a.case_id);
+            const { data: casesData } = await supabase.from('cases').select('*').in('id', caseIds).eq('estado', 'abierto');
+            if (!casesData || casesData.length === 0) {
+                setCriticalCase(null); return; 
+            }
+
+            // Consultar si hay actualizaciones pendientes o aprobadas que inhabiliten la alarma roja
+            const { data: updates } = await supabase.from('case_updates').select('case_id').in('case_id', caseIds).in('estado_aprobacion', ['pendiente', 'aprobado']);
+            const safeCaseIds = updates ? updates.map(u => u.case_id) : [];
+
+            let foundCritical = null;
+            let newWarnings: any[] = [];
+
+            casesData.forEach(c => {
+                const match = c.descripcion?.match(/Tiempo estimado:\s*([\d.]+)h/);
+                if (!match) return;
+
+                const estimatedMs = parseFloat(match[1]) * 60 * 60 * 1000;
+                const elapsedMs = getElapsedBusinessMs(c.created_at);
+                const remaining = estimatedMs - elapsedMs;
+                const percentage = remaining / estimatedMs;
+
+                // Si se le acabó el tiempo Y no ha subido el archivo...
+                if (remaining <= 0 && !safeCaseIds.includes(c.id)) {
+                    foundCritical = c;
+                } else if (remaining > 0) {
+                    // Solo registrar advertencias si NO están ya descartadas por el usuario
+                    let warnType = null;
+                    if (percentage <= 0.25) warnType = '25';
+                    else if (percentage <= 0.50) warnType = '50';
+                    else if (percentage <= 0.75) warnType = '75';
+
+                    if (warnType) {
+                        const warnKey = `${c.id}_${warnType}`;
+                        if (!dismissedWarnings[warnKey]) {
+                            newWarnings.push({ caso: c, type: warnType, key: warnKey, percentage: Math.round(percentage * 100) });
+                        }
+                    }
+                }
+            });
+
+            setCriticalCase(foundCritical);
+            setWarningAlerts(newWarnings);
+        };
+
+        scanCasesForAlerts();
+        const scanner = setInterval(scanCasesForAlerts, 10000); // Escanea cada 10 segundos
+        return () => clearInterval(scanner);
+    }, [session.user.id, dismissedWarnings]);
+
+    const dismissWarning = (warnKey: string) => {
+        const newDismissed = { ...dismissedWarnings, [warnKey]: true };
+        setDismissedWarnings(newDismissed);
+        localStorage.setItem('dismissedWarnings', JSON.stringify(newDismissed));
+        setWarningAlerts(prev => prev.filter(w => w.key !== warnKey));
+    };
+
     const handleMenuClick = (view: string) => {
         setActiveView(view);
         setMobileMenuOpen(false);
@@ -823,20 +922,8 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
         setNotificationsOpen(false);
     };
 
-    const renderContent = () => {
-        switch (activeView) {
-            case 'CLIENTS': return <WorkerClientsView session={session} userRole={userRole} />;
-            case 'ASSIGNED_CASES': return <WorkerAssignedCasesView session={session} />;
-            case 'TIME_BILLING': return <TimeBillingView session={session} onCancel={() => handleMenuClick('HOME')} />;
-            case 'EXPENSES': return <ExpensesView />;
-            case 'CHAT': return <WorkerChatView session={session} />;
-            case 'PROFILE': return <WorkerProfile session={session} onCancel={() => handleMenuClick('HOME')} />;
-            default: return null;
-        }
-    };
-
     return (
-        <div className="bg-black min-h-screen text-white flex flex-col font-mono relative">
+        <div className="bg-black min-h-screen text-white flex flex-col font-mono relative overflow-hidden">
             <style>{`
                 ::-webkit-scrollbar { width: 0px !important; height: 0px !important; background: transparent !important; display: none !important; }
                 * { -ms-overflow-style: none !important; scrollbar-width: none !important; }
@@ -844,7 +931,48 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
                 .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
             `}</style>
             
-            <header className="flex justify-between items-center p-6 bg-black sticky top-0 z-50 border-b border-zinc-900/50">
+            {/* --- BLOQUEO CRÍTICO INCERRABLE (Z-INDEX GIGANTE) --- */}
+            <Modal isOpen={!!criticalAlertCase} isCritical={true}>
+                <AlertTriangleIcon />
+                <h1 className="text-4xl font-black uppercase tracking-tighter italic mb-4">¡TIEMPO AGOTADO!</h1>
+                <p className="text-red-300 font-bold tracking-widest text-sm mb-6 leading-relaxed">
+                    EL PLAZO PARA EL CASO <strong className="text-white">"{criticalAlertCase?.titulo}"</strong> HA TERMINADO. <br/><br/>
+                    EL SISTEMA HA BLOQUEADO TU ACCESO A OTRAS FUNCIONES. ESTA ALERTA SOLO DESAPARECERÁ CUANDO SUBAS LA ACTUALIZACIÓN Y SEA APROBADA O ENVIADA A CORRECCIÓN POR EL ADMINISTRADOR.
+                </p>
+                <button 
+                    onClick={() => {
+                        handleMenuClick('ASSIGNED_CASES');
+                        setOpenSpecificCase(criticalAlertCase); // Dispara la apertura del caso en la vista correspondiente
+                    }} 
+                    className="mt-6 w-full bg-white text-red-900 font-black py-4 px-6 text-sm tracking-widest uppercase hover:bg-zinc-300 transition-colors rounded-xl shadow-2xl"
+                >
+                    Completar Tarea AHORA
+                </button>
+            </Modal>
+
+            {/* --- ALERTAS NO CRÍTICAS (FLOTANTES) --- */}
+            <div className="fixed bottom-6 right-6 z-[9998] flex flex-col gap-4">
+                {warningAlerts.map(warn => {
+                    const colors = {
+                        '75': 'bg-green-950/90 border-green-500 text-green-100',
+                        '50': 'bg-yellow-950/90 border-yellow-500 text-yellow-100',
+                        '25': 'bg-orange-950/90 border-orange-500 text-orange-100',
+                    }[warn.type as '75' | '50' | '25'];
+
+                    return (
+                        <div key={warn.key} className={`border-2 p-5 rounded-2xl shadow-2xl backdrop-blur-md animate-in slide-in-from-right-8 duration-500 max-w-sm w-full ${colors}`}>
+                            <div className="flex justify-between items-start mb-2">
+                                <p className="font-black uppercase tracking-widest text-[10px]">Alerta de Tiempo: Queda {warn.percentage}%</p>
+                                <button onClick={() => dismissWarning(warn.key)} className="text-white/50 hover:text-white text-[10px] font-bold">X CERRAR</button>
+                            </div>
+                            <p className="text-sm font-bold">{warn.caso.titulo}</p>
+                            <p className="text-[10px] mt-2 opacity-80 uppercase tracking-widest">Atiende este caso antes de que el tiempo expire.</p>
+                        </div>
+                    );
+                })}
+            </div>
+
+            <header className="flex justify-between items-center p-6 bg-black sticky top-0 z-[90] border-b border-zinc-900/50">
                 <button onClick={() => setMobileMenuOpen(true)} className="md:hidden text-zinc-400 hover:text-white">
                     <MenuIcon />
                 </button>
@@ -880,8 +1008,8 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
 
                         {notificationsOpen && (
                             <>
-                                <div className="fixed inset-0 z-40" onClick={() => setNotificationsOpen(false)}></div>
-                                <div className="absolute right-0 mt-4 w-80 bg-black/40 backdrop-blur-3xl border border-white/10 shadow-2xl shadow-black rounded-2xl py-2 z-50 animate-in fade-in slide-in-from-top-3 duration-300 overflow-hidden">
+                                <div className="fixed inset-0 z-[95]" onClick={() => setNotificationsOpen(false)}></div>
+                                <div className="absolute right-0 mt-4 w-80 bg-black/40 backdrop-blur-3xl border border-white/10 shadow-2xl shadow-black rounded-2xl py-2 z-[100] animate-in fade-in slide-in-from-top-3 duration-300 overflow-hidden">
                                     <div className="p-5 border-b border-white/5">
                                         <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-black">Notificaciones Recientes</p>
                                     </div>
@@ -927,8 +1055,8 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
 
                         {profileMenuOpen && (
                             <>
-                                <div className="fixed inset-0 z-40" onClick={() => setProfileMenuOpen(false)}></div>
-                                <div className="absolute right-0 mt-4 w-64 bg-black/40 backdrop-blur-3xl border border-white/10 shadow-2xl shadow-black rounded-2xl py-2 z-50 animate-in fade-in slide-in-from-top-3 duration-300 overflow-hidden">
+                                <div className="fixed inset-0 z-[95]" onClick={() => setProfileMenuOpen(false)}></div>
+                                <div className="absolute right-0 mt-4 w-64 bg-black/40 backdrop-blur-3xl border border-white/10 shadow-2xl shadow-black rounded-2xl py-2 z-[100] animate-in fade-in slide-in-from-top-3 duration-300 overflow-hidden">
                                     <div className="p-5 border-b border-white/5">
                                         <p className="text-[10px] text-zinc-500 uppercase tracking-widest mb-2 font-black">Sesión activa</p>
                                         <p className="text-sm font-bold text-white truncate mb-1">{session.user.email}</p>
@@ -975,19 +1103,34 @@ const WorkerDashboard: React.FC<{ session: Session }> = ({ session }) => {
             )}
 
             <main className="flex-grow flex flex-col relative z-10">
-                {activeView === 'HOME' ? (
-                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                        <div className="text-center font-black text-6xl relative h-20 w-full flex items-center justify-center">
-                            <h1 className="absolute transition-all duration-1000 ease-in-out opacity-100 tracking-[.2em]">
-                                Regalado & Regalado
-                            </h1>
-                        </div>
+                <div className={`absolute inset-0 flex items-center justify-center pointer-events-none transition-opacity duration-500 ${activeView === 'HOME' ? 'opacity-100 z-10' : 'opacity-0 -z-10 hidden'}`}>
+                    <div className="text-center font-black text-6xl relative w-full flex items-center justify-center font-serif tracking-widest">
+                        <h1 className="text-white drop-shadow-2xl px-4">
+                            Regalado & Regalado
+                        </h1>
                     </div>
-                ) : (
-                    <div className="p-4 sm:p-8 w-full max-w-7xl mx-auto flex-grow flex flex-col">
-                        {renderContent()}
+                </div>
+
+                <div className={`p-4 sm:p-8 w-full max-w-7xl mx-auto flex-grow flex-col ${activeView === 'HOME' ? 'hidden' : 'flex'}`}>
+                    <div className={`${activeView === 'CLIENTS' ? 'flex-grow flex flex-col h-full' : 'hidden'}`}>
+                        <WorkerClientsView session={session} userRole={userRole} />
                     </div>
-                )}
+                    <div className={`${activeView === 'ASSIGNED_CASES' ? 'flex-grow flex flex-col h-full' : 'hidden'}`}>
+                        <WorkerAssignedCasesView session={session} openSpecificCase={openSpecificCase} setOpenSpecificCase={setOpenSpecificCase} />
+                    </div>
+                    <div className={`${activeView === 'TIME_BILLING' ? 'flex-grow flex flex-col h-full' : 'hidden'}`}>
+                        <TimeBillingView session={session} onCancel={() => handleMenuClick('HOME')} />
+                    </div>
+                    <div className={`${activeView === 'EXPENSES' ? 'flex-grow flex flex-col h-full' : 'hidden'}`}>
+                        <ExpensesView />
+                    </div>
+                    <div className={`${activeView === 'CHAT' ? 'flex-grow flex flex-col h-full' : 'hidden'}`}>
+                        <WorkerChatView session={session} />
+                    </div>
+                    <div className={`${activeView === 'PROFILE' ? 'flex-grow flex flex-col h-full' : 'hidden'}`}>
+                        <WorkerProfile session={session} onCancel={() => handleMenuClick('HOME')} />
+                    </div>
+                </div>
             </main>
         </div>
     );

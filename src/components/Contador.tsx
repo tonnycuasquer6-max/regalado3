@@ -165,15 +165,6 @@ const Contador = () => {
         await supabase.auth.signOut();
     };
 
-    const renderContent = () => {
-        switch (activeView) {
-            case 'REPORTES': return <ReportsView onCancel={() => handleNavigate('HOME')} />;
-            case 'PERFILES': return <ListaPerfiles role="cliente" isContador={true} onCancel={() => handleNavigate('HOME')} />;
-            case 'PAGOS': return <PagosView />;
-            default: return null;
-        }
-    };
-
     return (
         <div className="bg-black min-h-screen text-white flex flex-col font-sans relative">
             <style>{`
@@ -237,17 +228,24 @@ const Contador = () => {
                 </div>
             )}
 
-            <main className="flex-grow relative p-4 sm:p-8 w-full max-w-7xl mx-auto">
-                <div className={`${activeView === 'HOME' ? 'block' : 'hidden'} relative`}> 
+            <main className="flex-grow relative p-4 sm:p-8 w-full max-w-7xl mx-auto flex flex-col">
+                <div className={`${activeView === 'HOME' ? 'flex' : 'hidden'} relative flex-grow items-center justify-center pointer-events-none`}> 
                     <div className="flex items-center justify-center h-[60vh] pointer-events-none">
                         <div className="text-center font-bold text-5xl md:text-7xl font-serif tracking-widest">
                             <h1 className="text-white drop-shadow-2xl">Regalado & Regalado</h1>
                         </div>
                     </div>
                 </div>
-                <div className={`${activeView === 'REPORTES' ? 'block' : 'hidden'}`}><ReportsView onCancel={() => handleNavigate('HOME')} /></div>
-                <div className={`${activeView === 'PERFILES' ? 'block' : 'hidden'}`}><ListaPerfiles role="cliente" isContador={true} onCancel={() => handleNavigate('HOME')} /></div>
-                <div className={`${activeView === 'PAGOS' ? 'block' : 'hidden'}`}><PagosView /></div>
+                
+                <div className={`${activeView === 'REPORTES' ? 'flex-grow flex flex-col' : 'hidden'}`}>
+                    <ReportsView onCancel={() => handleNavigate('HOME')} />
+                </div>
+                <div className={`${activeView === 'PERFILES' ? 'flex-grow flex flex-col' : 'hidden'}`}>
+                    <ListaPerfiles role="cliente" isContador={true} onCancel={() => handleNavigate('HOME')} />
+                </div>
+                <div className={`${activeView === 'PAGOS' ? 'flex-grow flex flex-col' : 'hidden'}`}>
+                    <PagosView />
+                </div>
             </main>
         </div>
     );

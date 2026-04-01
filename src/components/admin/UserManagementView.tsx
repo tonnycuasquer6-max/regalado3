@@ -4,13 +4,29 @@ import { CheckIcon } from '../shared/Icons';
 import { createClient } from '@supabase/supabase-js';
 
 // --- Constantes de Configuración ---
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL || "https://esolamojbxosnwqbtmbe.supabase.co";
-const SUPABASE_KEY = process.env.VITE_SUPABASE_ANON_KEY || "sb_publishable_zY7uEsSMSw-JMorX5KCBWw_A05KsnFa";
+const SUPABASE_URL = (import.meta as any).env.VITE_SUPABASE_URL || "https://esolamojbxosnwqbtmbe.supabase.co";
+const SUPABASE_KEY = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || "sb_publishable_zY7uEsSMSw-JMorX5KCBWw_A05KsnFa";
 
 // --- Cliente Supabase Temporal ---
 const tempSupabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
     auth: { persistSession: false }
 });
+
+// --- HOOK DE MEMORIA CACHÉ ---
+function useSessionState<T>(key: string, initialValue: T): [T, React.Dispatch<React.SetStateAction<T>>] {
+    const [state, setState] = useState<T>(() => {
+        try {
+            const item = sessionStorage.getItem(key);
+            return item ? JSON.parse(item) : initialValue;
+        } catch (error) {
+            return initialValue;
+        }
+    });
+    useEffect(() => {
+        sessionStorage.setItem(key, JSON.stringify(state));
+    }, [key, state]);
+    return [state, setState];
+}
 
 // --- Type Definitions ---
 interface ProfileFormState {
@@ -24,6 +40,7 @@ interface ProfileFormState {
     password: string;
     confirmPassword: string;
     color_perfil: string;
+    permiso_time_billing: 'acceso_completo' | 'acceso_limitado';
 }
 
 interface PasswordValidation {
@@ -35,17 +52,17 @@ interface PasswordValidation {
 }
 
 interface RoleConfig {
-    rol: 'trabajador' | 'cliente';
-    categoria_usuario: 'abogado' | 'estudiante' | 'cliente' | null;
+    rol: 'trabajador' | 'cliente' | 'admin' | 'contadora';
+    categoria_usuario: 'abogado' | 'estudiante' | 'cliente' | 'asociado' | 'contador' | 'administrador' | null;
     title: string;
 }
 
 interface UserManagementViewProps {
-    preselectedRole?: 'abogado' | 'estudiante' | 'cliente';
+    preselectedRole?: 'abogado' | 'estudiante' | 'cliente' | 'asociado' | 'contador' | 'administrador';
     onCancel: () => void;
 }
 
-// --- Paleta de colores para trabajadores ---
+// --- Paleta de colores ---
 const PROFILE_COLORS = [
     '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899',
     '#06b6d4', '#f97316', '#6366f1', '#14b8a6', '#f43f5e', '#84cc16'
@@ -63,6 +80,7 @@ const initialFormState: ProfileFormState = {
     password: '',
     confirmPassword: '',
     color_perfil: '',
+    permiso_time_billing: 'acceso_completo'
 };
 
 const initialPasswordValidation: PasswordValidation = {
@@ -74,7 +92,10 @@ const initialPasswordValidation: PasswordValidation = {
 };
 
 const roleConfigs: RoleConfig[] = [
+    { rol: 'admin', categoria_usuario: 'administrador', title: 'Registro: ADMINISTRADOR' },
+    { rol: 'trabajador', categoria_usuario: 'asociado', title: 'Registro: ASOCIADO' },
     { rol: 'trabajador', categoria_usuario: 'abogado', title: 'Registro: ABOGADO' },
+    { rol: 'contadora', categoria_usuario: 'contador', title: 'Registro: CONTADOR' },
     { rol: 'trabajador', categoria_usuario: 'estudiante', title: 'Registro: ESTUDIANTE' },
     { rol: 'cliente', categoria_usuario: 'cliente', title: 'Registro: CLIENTE' },
 ];
@@ -86,30 +107,33 @@ const findConfigForRole = (role?: string): RoleConfig | null => {
 
 // --- Main Component ---
 const UserManagementView: React.FC<UserManagementViewProps> = ({ preselectedRole, onCancel }) => {
-    const [selectedRoleConfig] = useState<RoleConfig | null>(() => findConfigForRole(preselectedRole));
+    const selectedRoleConfig = findConfigForRole(preselectedRole);
+    
     const [view, setView] = useState<'form' | 'success'>('form');
     
-    const [step, setStep] = useState(1);
-    const [formData, setFormData] = useState<ProfileFormState>(initialFormState);
+    // MEMORIA CACHÉ
+    const [step, setStep] = useSessionState(`admin_um_step_${preselectedRole}`, 1);
+    const [formData, setFormData] = useSessionState<ProfileFormState>(`admin_um_form_${preselectedRole}`, initialFormState);
+    
     const [passwordValidation, setPasswordValidation] = useState<PasswordValidation>(initialPasswordValidation);
     const [passwordsMatch, setPasswordsMatch] = useState(false);
+    
     const [photoFile, setPhotoFile] = useState<File | null>(null);
     const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+    
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    // Estado para controlar colores ya en uso
     const [usedColors, setUsedColors] = useState<string[]>([]);
-    
+    const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+
     const allPasswordRequirementsMet = Object.values(passwordValidation).every(Boolean);
 
     useEffect(() => {
         const fetchUsedColors = async () => {
             if (selectedRoleConfig?.rol === 'trabajador') {
                 const { data } = await supabase.from('profiles').select('color_perfil').not('color_perfil', 'is', null);
-                if (data) {
-                    setUsedColors(data.map(p => p.color_perfil));
-                }
+                if (data) { setUsedColors(data.map(p => p.color_perfil)); }
             }
         };
         fetchUsedColors();
@@ -130,7 +154,7 @@ const UserManagementView: React.FC<UserManagementViewProps> = ({ preselectedRole
         setPasswordsMatch(formData.password !== '' && formData.password === formData.confirmPassword);
     }, [formData.password, formData.confirmPassword]);
     
-    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
         setFormData(prev => ({ ...prev, [name]: value }));
     };
@@ -138,11 +162,8 @@ const UserManagementView: React.FC<UserManagementViewProps> = ({ preselectedRole
     const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0] || null;
         setPhotoFile(file);
-        if (file) {
-            setPhotoPreview(URL.createObjectURL(file));
-        } else {
-            setPhotoPreview(null);
-        }
+        if (file) { setPhotoPreview(URL.createObjectURL(file)); } 
+        else { setPhotoPreview(null); }
     };
     
     const nextStep = () => {
@@ -155,6 +176,18 @@ const UserManagementView: React.FC<UserManagementViewProps> = ({ preselectedRole
     };
     
     const prevStep = () => setStep(prev => prev - 1);
+
+    const handleCloseAndClear = () => {
+        setStep(1);
+        setFormData(initialFormState);
+        setPhotoFile(null);
+        setPhotoPreview(null);
+        setError(null);
+        setView('form');
+        sessionStorage.removeItem(`admin_um_step_${preselectedRole}`);
+        sessionStorage.removeItem(`admin_um_form_${preselectedRole}`);
+        onCancel();
+    };
 
     const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
@@ -195,24 +228,26 @@ const UserManagementView: React.FC<UserManagementViewProps> = ({ preselectedRole
                     rol: selectedRoleConfig.rol,
                     categoria_usuario: selectedRoleConfig.categoria_usuario,
                     foto_url: final_foto_url,
-                    color_perfil: formData.color_perfil || null
+                    color_perfil: formData.color_perfil || null,
+                    estado_aprobacion: 'aprobado', 
+                    permiso_time_billing: formData.permiso_time_billing 
                 };
                 
-                if (selectedRoleConfig.categoria_usuario === 'abogado') {
+                if (selectedRoleConfig.categoria_usuario === 'abogado' || selectedRoleConfig.categoria_usuario === 'asociado') {
                     profileData.matricula_nro = formData.matricula_nro;
                 }
 
-                const { error: updateError } = await supabase
-                    .from('profiles')
-                    .update(profileData)
-                    .eq('id', signUpData.user.id);
-
+                const { error: updateError } = await supabase.from('profiles').update(profileData).eq('id', signUpData.user.id);
                 if (updateError) throw new Error(`Error en actualización de perfil: ${updateError.message}`);
                 
+                setFormData(initialFormState);
+                setStep(1);
+                sessionStorage.removeItem(`admin_um_step_${preselectedRole}`);
+                sessionStorage.removeItem(`admin_um_form_${preselectedRole}`);
                 setView('success');
             }
         } catch (err: any) {
-            setError(err.message || "Error crítico en el proceso de registro.");
+            setError(err.message || "Error crítico en el proceso de registro. Es posible que este correo ya esté en uso.");
         } finally {
             setLoading(false);
         }
@@ -222,41 +257,38 @@ const UserManagementView: React.FC<UserManagementViewProps> = ({ preselectedRole
         return (
             <div className="text-center text-red-500 bg-black border border-zinc-800 p-10">
                 <h2 className="text-2xl font-bold mb-4">Error de Configuración</h2>
-                <p>Rol de usuario no válido o no especificado.</p>
-                <button onClick={onCancel} className="mt-6 bg-zinc-800 hover:bg-zinc-700 text-white font-bold py-2 px-6">
+                <p>Cargando información del rol...</p>
+                <button onClick={handleCloseAndClear} className="mt-6 bg-zinc-800 hover:bg-zinc-700 text-white font-bold py-2 px-6">
                     Volver al inicio
                 </button>
             </div>
         );
     }
     
+    // --- VISTA DE ÉXITO NATURALMENTE ACOPLADA (SIN POSICIÓN ABSOLUTA) ---
     if (view === 'success') {
         return (
-            <div className="flex flex-col items-center justify-center min-h-[75vh] py-16 px-6 bg-black animate-in fade-in duration-1000">
-                <style>{`
-                    ::-webkit-scrollbar { width: 0px !important; height: 0px !important; background: transparent !important; display: none !important; }
-                    * { -ms-overflow-style: none !important; scrollbar-width: none !important; }
-                `}</style>
-                <div className="mb-14 relative group">
+            <div className="flex-grow flex flex-col items-center justify-center animate-in fade-in duration-1000 p-6 min-h-[60vh]">
+                <div className="mb-10 relative group flex-shrink-0">
                     <div className="absolute inset-0 bg-white rounded-full blur-[60px] opacity-20 animate-pulse"></div>
-                    <div className="relative flex items-center justify-center bg-black rounded-full w-48 h-48 border-[2px] border-white shadow-[0_0_80px_rgba(255,255,255,0.4)]">
-                        <CheckIcon className="text-white h-28 w-28 stroke-[3] drop-shadow-[0_0_20px_rgba(255,255,255,1)]" />
+                    <div className="relative flex items-center justify-center bg-black rounded-full w-40 h-40 border-[2px] border-white shadow-[0_0_80px_rgba(255,255,255,0.4)] md:w-48 md:h-48">
+                        <CheckIcon className="text-white h-24 w-24 md:h-28 md:w-28 stroke-[3] drop-shadow-[0_0_20px_rgba(255,255,255,1)]" />
                     </div>
                 </div>
                 
-                <h1 className="text-5xl font-black mb-8 text-white text-center tracking-tighter drop-shadow-[0_0_30px_rgba(255,255,255,0.5)] uppercase italic">
+                <h1 className="text-4xl md:text-6xl font-black mb-8 text-white text-center tracking-tighter drop-shadow-[0_0_30px_rgba(255,255,255,0.5)] uppercase italic px-4 leading-none flex-shrink-0">
                     USUARIO REGISTRADO CORRECTAMENTE
                 </h1>
                 
-                <div className="flex flex-col sm:flex-row gap-8 w-full max-w-2xl mt-14">
+                <div className="flex flex-col sm:flex-row gap-8 w-full max-w-2xl mt-10 flex-shrink-0">
                     <button 
-                        onClick={onCancel} 
-                        className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white font-black py-6 px-10 rounded-none border border-zinc-700 transition-all active:scale-95 shadow-xl uppercase tracking-[0.4em] text-[10px]"
+                        onClick={() => { setView('form'); }} 
+                        className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white font-black py-5 md:py-6 px-10 rounded-none border border-zinc-700 transition-all active:scale-95 shadow-xl uppercase tracking-[0.4em] text-[10px]"
                     >
                         Registrar otro
                     </button>
                     <button 
-                        onClick={onCancel}
+                        onClick={handleCloseAndClear}
                         className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white font-black py-6 px-10 rounded-none transition-all active:scale-95 shadow-xl uppercase tracking-[0.4em] text-[10px]"
                     >
                         Panel Principal
@@ -267,27 +299,13 @@ const UserManagementView: React.FC<UserManagementViewProps> = ({ preselectedRole
     }
 
     return (
-        <div className="max-w-6xl mx-auto">
-            {/* CÓDIGO PARA DESAPARECER LA BARRA DE SCROLL */}
-            <style>{`
-                ::-webkit-scrollbar {
-                    width: 0px !important;
-                    height: 0px !important;
-                    background: transparent !important;
-                    display: none !important;
-                }
-                * {
-                    -ms-overflow-style: none !important;
-                    scrollbar-width: none !important;
-                }
-            `}</style>
-
-            <header className="mb-10 flex items-center justify-between border-b border-zinc-900 pb-6">
+        <div className="max-w-6xl mx-auto h-full flex flex-col">
+            <header className="mb-10 flex items-center justify-between border-b border-zinc-900 pb-6 flex-shrink-0">
                 <h1 className="text-4xl font-black tracking-tighter uppercase italic text-white">{selectedRoleConfig.title}</h1>
                 <div className="text-[10px] font-black text-white tracking-[0.3em] uppercase opacity-80">Sincronización Segura</div>
             </header>
 
-             <div className="bg-black border border-zinc-800 p-8 sm:p-16 shadow-[0_0_100px_rgba(0,0,0,1)] relative">
+             <div className="bg-black border border-zinc-800 p-8 sm:p-16 shadow-[0_0_100px_rgba(0,0,0,1)] relative flex-grow overflow-y-auto">
                 <div className="mb-16">
                     <div className="flex justify-between items-center relative">
                        <div className={`flex-1 text-center py-5 border-b-[6px] transition-all duration-700 ${step === 1 ? 'border-zinc-700 text-white font-black' : 'border-zinc-900 text-zinc-700'}`}>01. PERFIL</div>
@@ -315,10 +333,10 @@ const UserManagementView: React.FC<UserManagementViewProps> = ({ preselectedRole
                                         </div>
                                     )}
                                 </div>
-                                <label htmlFor="photo-upload" className="cursor-pointer bg-zinc-800 text-white font-black py-5 px-16 rounded-none transition-all shadow-xl uppercase text-[11px] tracking-[0.4em] hover:bg-zinc-700 active:scale-95">
+                                <label htmlFor={`photo-upload-${preselectedRole}`} className="cursor-pointer bg-zinc-800 text-white font-black py-5 px-16 rounded-none transition-all shadow-xl uppercase text-[11px] tracking-[0.4em] hover:bg-zinc-700 active:scale-95">
                                     Cargar Fotografía
                                 </label>
-                                <input id="photo-upload" name="photo" type="file" className="hidden" accept="image/*" onChange={handlePhotoChange} />
+                                <input id={`photo-upload-${preselectedRole}`} name="photo" type="file" className="hidden" accept="image/*" onChange={handlePhotoChange} />
                             </div>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-8">
@@ -327,7 +345,7 @@ const UserManagementView: React.FC<UserManagementViewProps> = ({ preselectedRole
                                 <InputField label="Primer Apellido" name="primer_apellido" value={formData.primer_apellido} onChange={handleInputChange} required />
                                 <InputField label="Segundo Apellido" name="segundo_apellido" value={formData.segundo_apellido} onChange={handleInputChange} />
                                 <InputField label="DNI / Cédula" name="cedula" value={formData.cedula} onChange={handleInputChange} required />
-                                {selectedRoleConfig.categoria_usuario === 'abogado' && (
+                                {(selectedRoleConfig.categoria_usuario === 'abogado' || selectedRoleConfig.categoria_usuario === 'asociado') && (
                                     <InputField label="Matrícula Prof." name="matricula_nro" value={formData.matricula_nro} onChange={handleInputChange} required />
                                 )}
                             </div>
@@ -363,7 +381,7 @@ const UserManagementView: React.FC<UserManagementViewProps> = ({ preselectedRole
                             )}
 
                             <div className="flex items-center justify-end gap-10 pt-12">
-                                 <button type="button" onClick={onCancel} className="text-zinc-400 hover:text-white font-black py-3 px-8 transition-colors uppercase text-[10px] tracking-[0.3em]">
+                                 <button type="button" onClick={handleCloseAndClear} className="text-zinc-400 hover:text-white font-black py-3 px-8 transition-colors uppercase text-[10px] tracking-[0.3em]">
                                     Cancelar
                                 </button>
                                 <button type="button" onClick={nextStep} className="bg-zinc-800 text-white font-black py-5 px-16 rounded-none transition-all shadow-xl uppercase text-[11px] tracking-[0.5em] hover:bg-zinc-700 active:scale-95">
@@ -375,7 +393,64 @@ const UserManagementView: React.FC<UserManagementViewProps> = ({ preselectedRole
 
                     {step === 2 && (
                          <div className="space-y-12 animate-in fade-in slide-in-from-right-10 duration-700">
-                            <InputField label="Email Corporativo" name="email" type="email" value={formData.email} onChange={handleInputChange} required />
+                            
+                            <div className="grid grid-cols-1 gap-y-8">
+                                <InputField label="Email Corporativo" name="email" type="email" value={formData.email} onChange={handleInputChange} required />
+                            </div>
+
+                            {selectedRoleConfig.rol === 'trabajador' && (
+                                <div className="pt-4 pb-4">
+                                    <label className="block text-zinc-500 text-[10px] font-black mb-3 uppercase tracking-[0.3em]">Permiso en Time Billing</label>
+                                    <div className="relative border-b-2 border-transparent focus-within:border-zinc-500 transition-all">
+                                        <div 
+                                            onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                                            className="w-full py-2 px-0 bg-transparent text-white uppercase tracking-widest text-[11px] font-bold cursor-pointer flex justify-between items-center transition-all"
+                                        >
+                                            <span>
+                                                {formData.permiso_time_billing === 'acceso_completo' 
+                                                    ? 'ACCESO COMPLETO (Editar, Mover y Eliminar)' 
+                                                    : 'ACCESO LIMITADO (Solo Ingresar Nuevos Datos)'}
+                                            </span>
+                                            <svg className={`fill-current h-4 w-4 text-zinc-500 transition-transform duration-300 ${isDropdownOpen ? 'rotate-180' : ''}`} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+                                        </div>
+                                        
+                                        {isDropdownOpen && (
+                                            <>
+                                                <div className="fixed inset-0 z-40" onClick={() => setIsDropdownOpen(false)}></div>
+                                                <div className="absolute top-full left-0 w-full mt-2 bg-black border border-zinc-800 shadow-2xl z-50 flex flex-col animate-in fade-in slide-in-from-top-2 duration-200">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => { 
+                                                            setFormData({ ...formData, permiso_time_billing: 'acceso_completo' }); 
+                                                            setIsDropdownOpen(false); 
+                                                        }}
+                                                        className={`p-4 text-left text-[10px] uppercase tracking-widest font-bold transition-colors ${formData.permiso_time_billing === 'acceso_completo' ? 'bg-zinc-900 text-white border-l-2 border-white' : 'text-zinc-500 hover:text-white hover:bg-zinc-900 border-l-2 border-transparent'}`}
+                                                    >
+                                                        ACCESO COMPLETO (Editar, Mover y Eliminar)
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => { 
+                                                            setFormData({ ...formData, permiso_time_billing: 'acceso_limitado' }); 
+                                                            setIsDropdownOpen(false); 
+                                                        }}
+                                                        className={`p-4 text-left text-[10px] uppercase tracking-widest font-bold transition-colors ${formData.permiso_time_billing === 'acceso_limitado' ? 'bg-zinc-900 text-white border-l-2 border-white' : 'text-zinc-500 hover:text-white hover:bg-zinc-900 border-l-2 border-transparent'}`}
+                                                    >
+                                                        ACCESO LIMITADO (Solo Ingresar Nuevos Datos)
+                                                    </button>
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+                                    <div className="h-[2px] w-full bg-zinc-800 mt-1"></div>
+                                    <p className="text-zinc-500 text-[9px] mt-4 tracking-widest uppercase">
+                                        {formData.permiso_time_billing === 'acceso_completo' 
+                                            ? 'El usuario podrá modificar y arrastrar tareas en el calendario.' 
+                                            : 'El usuario no podrá corregir sus tareas una vez guardadas. Aparecerá un panel de confirmación.'}
+                                    </p>
+                                </div>
+                            )}
+
                             <div className="space-y-8">
                                 <InputField label="Contraseña Maestra" name="password" type="password" value={formData.password} onChange={handleInputChange} required />
                                 <div className="p-8 bg-zinc-950 border border-zinc-900 shadow-inner">

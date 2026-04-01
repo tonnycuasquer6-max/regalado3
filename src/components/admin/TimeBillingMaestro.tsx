@@ -1,6 +1,23 @@
 import React, { useState, useEffect, useCallback, Fragment } from 'react';
+import { createPortal } from 'react-dom';
 import { supabase } from '../../services/supabaseClient';
 import { Case, TimeEntry, Profile } from '../../types';
+
+// --- HOOK DE MEMORIA CACHÉ ---
+function useSessionState<T>(key: string, initialValue: T): [T, React.Dispatch<React.SetStateAction<T>>] {
+    const [state, setState] = useState<T>(() => {
+        try {
+            const item = sessionStorage.getItem(key);
+            return item ? JSON.parse(item) : initialValue;
+        } catch (error) {
+            return initialValue;
+        }
+    });
+    useEffect(() => {
+        sessionStorage.setItem(key, JSON.stringify(state));
+    }, [key, state]);
+    return [state, setState];
+}
 
 const getStartOfWeek = (date: Date) => {
   const d = new Date(date);
@@ -67,12 +84,13 @@ const NumberControl: React.FC<any> = ({ label, value, step, min, onChange, isTim
 
 const Modal: React.FC<{ isOpen: boolean; onClose: () => void; children: React.ReactNode }> = ({ isOpen, onClose, children }) => {
     if (!isOpen) return null;
-    return (
+    return createPortal(
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 font-mono">
-        <div className="bg-black/80 backdrop-blur-xl border border-white/10 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] rounded-2xl">
+        <div className="bg-black/80 backdrop-blur-xl border border-white/10 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] rounded-2xl relative">
           {children}
         </div>
-      </div>
+      </div>,
+      document.body
     );
 };
 
@@ -107,20 +125,16 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
   const [actionLoading, setActionLoading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [selectedSlot, setSelectedSlot] = useState<{ date: string; hour: number } | null>(null);
-  const [editingEntry, setEditingEntry] = useState<TimeEntry | null>(null);
-  
-  const [selectedClientId, setSelectedClientId] = useState<string>('');
-  const [selectedCaseId, setSelectedCaseId] = useState<string>('');
-  const [taskDescription, setTaskDescription] = useState('');
-  const [hoursWorked, setHoursWorked] = useState<number>(1);
-  const [rate, setRate] = useState<number>(0);
-  const [billingMode, setBillingMode] = useState<'descripcion' | 'costos_fijos'>('descripcion');
-  const [fixedCostOption, setFixedCostOption] = useState<number | null>(null);
-  const [fixedCostSearch, setFixedCostSearch] = useState('');
-  const fixedCostOptions = Array.from({ length: 50 }, (_, i) => i + 1);
-  const [pagoStatus, setPagoStatus] = useState<'cobrado' | 'por_cobrar'>('por_cobrar');
+  // --- MEMORIA CACHÉ ---
+  const [isModalOpen, setIsModalOpen] = useSessionState('tb_maestro_modalOpen', false);
+  const [selectedSlot, setSelectedSlot] = useSessionState<{ date: string; hour: number } | null>('tb_maestro_slot', null);
+  const [editingEntry, setEditingEntry] = useSessionState<TimeEntry | null>('tb_maestro_editEntry', null);
+  const [selectedClientId, setSelectedClientId] = useSessionState<string>('tb_maestro_client', '');
+  const [selectedCaseId, setSelectedCaseId] = useSessionState<string>('tb_maestro_case', '');
+  const [taskDescription, setTaskDescription] = useSessionState('tb_maestro_desc', '');
+  const [hoursWorked, setHoursWorked] = useSessionState<number>('tb_maestro_hours', 1);
+  const [rate, setRate] = useSessionState<number>('tb_maestro_rate', 0);
+  const [pagoStatus, setPagoStatus] = useSessionState<'cobrado' | 'por_cobrar'>('tb_maestro_pago', 'por_cobrar');
   
   const isUserAdmin = currentUserProfile?.rol === 'admin';
 
@@ -155,27 +169,36 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
 
   const changeWeek = (direction: 'prev' | 'next') => { setCurrentDate(prev => { const newDate = new Date(prev); newDate.setDate(prev.getDate() + (direction === 'prev' ? -7 : 7)); return newDate; }); };
 
+  const closeAndClearModal = () => {
+    setIsModalOpen(false);
+    setEditingEntry(null);
+    setSelectedSlot(null);
+    setSelectedClientId('');
+    setSelectedCaseId('');
+    setTaskDescription('');
+    setHoursWorked(1);
+    setRate(0);
+    setPagoStatus('por_cobrar');
+  };
+
   const openNewEntryModal = (date: string, hour: number) => {
     setEditingEntry(null); setSelectedSlot({ date, hour }); setSelectedClientId(''); setSelectedCaseId(''); setTaskDescription(''); setHoursWorked(1); setRate(0); setPagoStatus('por_cobrar'); setIsModalOpen(true);
-    setBillingMode('descripcion'); setFixedCostOption(null); setFixedCostSearch('');
   };
 
   const openEditEntryModal = (entry: any) => {
     setEditingEntry(entry); setSelectedSlot({ date: entry.fecha_tarea, hour: parseInt(entry.hora_inicio.split(':')[0]) }); setSelectedClientId(entry.cases?.cliente_id || ''); setSelectedCaseId(entry.caso_id); setTaskDescription(entry.descripcion_tarea); setHoursWorked(entry.horas); setRate(entry.tarifa_personalizada || 0); setPagoStatus(entry.estado || 'por_cobrar'); setIsModalOpen(true);
-    setBillingMode('descripcion'); setFixedCostOption(null); setFixedCostSearch('');
   };
 
   const handleSaveEntry = async (e: React.FormEvent) => {
     e.preventDefault();
-    const finalDescription = billingMode === 'costos_fijos' ? `Costo fijo #${fixedCostOption || '1'}` : taskDescription;
-    if (!selectedSlot || !selectedCaseId || !finalDescription || hoursWorked <= 0 || !currentUserProfile) return;
+    if (!selectedSlot || !selectedCaseId || !taskDescription || hoursWorked <= 0 || !currentUserProfile) return;
     setActionLoading(true);
     
     const entryData = {
       id: editingEntry?.id,
       perfil_id: editingEntry ? editingEntry.perfil_id : currentUserProfile.id,
       caso_id: selectedCaseId,
-      descripcion_tarea: finalDescription,
+      descripcion_tarea: taskDescription,
       fecha_tarea: selectedSlot.date,
       hora_inicio: `${String(selectedSlot.hour).padStart(2, '0')}:00:00`,
       horas: hoursWorked,
@@ -187,7 +210,7 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
     try {
       const { error } = await supabase.from('time_entries').upsert(entryData);
       if (error) throw error;
-      setIsModalOpen(false);
+      closeAndClearModal();
       await fetchWeekEntries(currentUserProfile);
     } catch (error: any) { alert(`Error al guardar: ${error.message}`); } finally { setActionLoading(false); }
   };
@@ -204,15 +227,13 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
             try {
                 const { error } = await supabase.from('time_entries').delete().eq('id', idToDelete);
                 if (error) throw error;
-                setIsModalOpen(false);
-                setEditingEntry(null);
+                closeAndClearModal();
                 await fetchWeekEntries(currentUserProfile);
             } catch (error: any) { alert(`Error: ${error.message}`); } finally { setActionLoading(false); }
         }
     });
   };
 
-  // --- LÓGICA DE DRAG & DROP ---
   const handleDragStart = (e: React.DragEvent, entry: TimeEntry) => {
       if (!isUserAdmin) {
         e.preventDefault();
@@ -251,7 +272,6 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
     return { label: '25%', color: 'bg-red-500' };
   };
 
-  // --- SUGERENCIAS ---
   const selectedCaseObj = cases.find(c => c.id === selectedCaseId);
   const presetRateMatch = selectedCaseObj?.descripcion.match(/Precio:\s*\$([\d.]+)/);
   const suggestedRate = presetRateMatch ? parseFloat(presetRateMatch[1]) : null;
@@ -345,7 +365,7 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
         </div>
       </div>
 
-      <Modal isOpen={isModalOpen && !!selectedSlot} onClose={() => setIsModalOpen(false)}>
+      <Modal isOpen={isModalOpen && !!selectedSlot} onClose={closeAndClearModal}>
         <form onSubmit={handleSaveEntry} className="p-8 overflow-y-auto max-h-[85vh]">
             <h2 className="text-xl font-bold text-white mb-8 italic tracking-widest">{editingEntry ? 'EDITAR' : 'REGISTRAR'} TAREA</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
@@ -361,59 +381,7 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
                 <SelectField label="Caso" value={selectedCaseId} onChange={(e: any) => setSelectedCaseId(e.target.value)} options={filteredCases} disabled={!selectedClientId} required />
                 
                 <div className="md:col-span-2">
-                    <div className="mb-4 p-3 border border-white/10 rounded-xl bg-black/40 backdrop-blur-md text-xs text-zinc-400">
-                      Ejemplo de presupuesto express: 50 x 2 (10.000 km) = neto $4,500.
-                      <button type="button" onClick={() => {
-                        setBillingMode('costos_fijos');
-                        setFixedCostOption(50);
-                        setHoursWorked(2);
-                        setRate(2250);
-                        setTaskDescription('Tiempo extra por kilometraje 10.000');
-                      }} className="ml-2 text-blue-400 hover:text-blue-300">usar ejemplo</button>
-                    </div>
-                    <div className="flex gap-2 mb-4">
-                      <button type="button" onClick={() => setBillingMode('descripcion')} className={`px-4 py-2 rounded-xl transition-all ${billingMode === 'descripcion' ? 'bg-blue-600/80 backdrop-blur-md text-white shadow-lg' : 'bg-white/5 text-zinc-400 hover:text-white hover:bg-white/10'}`}>
-                        DESCRIPCIÓN
-                      </button>
-                      <button type="button" onClick={() => setBillingMode('costos_fijos')} className={`px-4 py-2 rounded-xl transition-all ${billingMode === 'costos_fijos' ? 'bg-blue-600/80 backdrop-blur-md text-white shadow-lg' : 'bg-white/5 text-zinc-400 hover:text-white hover:bg-white/10'}`}>
-                        COSTOS FIJOS
-                      </button>
-                    </div>
-
-                    {billingMode === 'costos_fijos' ? (
-                      <div className="space-y-3">
-                        <input
-                          type="text"
-                          value={fixedCostSearch}
-                          onChange={(e) => setFixedCostSearch(e.target.value)}
-                          placeholder="Buscar costo fijo..."
-                          className="w-full bg-transparent border-b-2 border-zinc-800 text-white py-2 px-1 focus:outline-none focus:border-zinc-500 transition-colors"
-                        />
-                        <select
-                          value={fixedCostOption || ''}
-                          onChange={(e) => {
-                            const selected = Number(e.target.value);
-                            const baseHours = 0.5 + selected * 0.1;
-                            const baseRate = 30 + selected * 1.5;
-                            setFixedCostOption(selected);
-                            setHoursWorked(Math.round(baseHours * 100) / 100);
-                            setRate(Math.round((baseRate + (Math.random() * 20 - 10)) * 100) / 100);
-                            setTaskDescription(`Costo fijo #${selected}`);
-                          }}
-                          className="w-full bg-black/80 border border-white/10 text-white py-3 px-4 rounded-xl focus:outline-none focus:border-white/30 transition-colors shadow-inner"
-                          required
-                        >
-                          <option value="">Selecciona costo fijo...</option>
-                          {fixedCostOptions
-                            .filter((opt) => opt.toString().includes(fixedCostSearch))
-                            .map((opt) => (
-                              <option key={opt} value={opt}>Costo fijo {opt}</option>
-                            ))}
-                        </select>
-                      </div>
-                    ) : (
-                      <InputField label="Descripción Tarea" value={taskDescription} onChange={(e: any) => setTaskDescription(e.target.value)} required />
-                    )}
+                    <InputField label="Descripción Tarea" value={taskDescription} onChange={(e: any) => setTaskDescription(e.target.value)} required />
                 </div>
 
                 <div>
@@ -456,7 +424,7 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
                     )}
                 </div>
                 <div className="flex gap-4">
-                    <button type="button" onClick={() => setIsModalOpen(false)} className="font-bold py-2 px-6 text-zinc-400 hover:text-white transition-colors uppercase text-[10px] tracking-widest border border-white/10 hover:bg-white/5 rounded-xl">Cancelar</button>
+                    <button type="button" onClick={closeAndClearModal} className="font-bold py-2 px-6 text-zinc-400 hover:text-white transition-colors uppercase text-[10px] tracking-widest border border-white/10 hover:bg-white/5 rounded-xl">Cancelar</button>
                     <button type="submit" disabled={actionLoading} className="bg-blue-600/80 hover:bg-blue-500 backdrop-blur-md shadow-lg text-white font-bold py-2 px-6 transition-colors uppercase tracking-widest text-[10px] disabled:opacity-50 rounded-xl">
                         {actionLoading ? '...' : (editingEntry ? 'GUARDAR CAMBIOS' : 'REGISTRAR TAREA')}
                     </button>

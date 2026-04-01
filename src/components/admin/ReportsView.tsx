@@ -42,6 +42,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ onCancel }) => {
         clientsData?.forEach(c => { cDict[c.id] = c; });
         setClientsDict(cDict);
 
+        // AHORA TRAEMOS TAMBIÉN EL ESTADO DEL CONTADOR
         const { data: timeEntries } = await supabase.from('time_entries').select('*, caso:cases(titulo, cliente_id)').gte('fecha_tarea', startStr).lte('fecha_tarea', endStr).order('fecha_tarea', { ascending: false });
 
         let expensesData: any[] = [];
@@ -82,6 +83,19 @@ const ReportsView: React.FC<ReportsViewProps> = ({ onCancel }) => {
     const toggleRecords = (workerId: string) => setShowRecords(prev => ({ ...prev, [workerId]: !prev[workerId] }));
 
     const monthName = currentMonth.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }).toUpperCase();
+
+    // CALCULO GLOBAL DE TOTALES
+    let totalGlobalConfirmed = 0;
+    let totalGlobalPending = 0;
+    
+    Object.values(reports).forEach(({ timeEntries }) => {
+        timeEntries.forEach(te => {
+            const isConfirmed = te.estado === 'cobrado' && te.estado_pago_contador === 'aprobado';
+            const amount = (te.horas || 0) * (te.tarifa_personalizada || 0);
+            if (isConfirmed) totalGlobalConfirmed += amount;
+            else totalGlobalPending += amount;
+        });
+    });
 
     return (
         <div className="max-w-5xl mx-auto animate-in fade-in duration-500 font-mono text-white pb-12 relative">
@@ -126,123 +140,163 @@ const ReportsView: React.FC<ReportsViewProps> = ({ onCancel }) => {
             ) : Object.values(reports).length === 0 ? (
                 <div className="bg-black border border-zinc-900 p-8 text-center text-zinc-500">No hay trabajadores registrados en el sistema.</div>
             ) : (
-                <div className="space-y-6">
-                    {Object.values(reports).map(({ worker, timeEntries, expenses }) => {
-                        const isExpanded = expandedWorkers.includes(worker.id);
-                        const isShowingRecords = showRecords[worker.id];
-                        
-                        const totalHours = timeEntries.reduce((acc, curr) => acc + (curr.horas || 0), 0);
-                        const totalIncome = timeEntries.reduce((acc, curr) => acc + ((curr.horas || 0) * (curr.tarifa_personalizada || 0)), 0);
-                        const totalExpenses = expenses.reduce((acc, curr) => acc + (curr.monto || 0), 0);
-                        const finalTotal = totalIncome + totalExpenses;
+                <>
+                    {/* PANEL GLOBAL DE INGRESOS */}
+                    <div className="bg-black border border-zinc-800 p-8 mb-8 flex justify-around divide-x divide-zinc-800 text-center shadow-2xl">
+                        <div className="w-1/2 px-4">
+                            <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-black mb-2">Ingresos Generados (A Confirmar)</p>
+                            <p className="text-3xl font-black text-yellow-500 tracking-wider">${totalGlobalPending.toFixed(2)}</p>
+                        </div>
+                        <div className="w-1/2 px-4">
+                            <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-black mb-2">Ingresos Confirmados por Contaduría</p>
+                            <p className="text-3xl font-black text-green-500 tracking-wider">${totalGlobalConfirmed.toFixed(2)}</p>
+                        </div>
+                    </div>
 
-                        return (
-                            <div key={worker.id} className={`bg-zinc-950 border transition-all duration-300 ${isExpanded ? 'border-zinc-700 shadow-2xl shadow-black' : 'border-zinc-900 hover:border-zinc-700'}`}>
-                                
-                                <div onClick={() => toggleExpand(worker.id)} className="flex items-center p-6 cursor-pointer group">
-                                    <div className="relative w-14 h-14 flex-shrink-0">
-                                        <img src={worker.foto_url || 'https://via.placeholder.com/150'} alt="Perfil" className="w-full h-full rounded-full border-2 border-zinc-800 object-cover group-hover:border-zinc-500 transition-colors" />
-                                        {worker.color_perfil && (
-                                            <span className="absolute bottom-0 right-0 w-4 h-4 rounded-full border-2 border-black" style={{ backgroundColor: worker.color_perfil }}></span>
-                                        )}
-                                    </div>
+                    <div className="space-y-6">
+                        {Object.values(reports).map(({ worker, timeEntries, expenses }) => {
+                            const isExpanded = expandedWorkers.includes(worker.id);
+                            const isShowingRecords = showRecords[worker.id];
+                            
+                            const totalHours = timeEntries.reduce((acc, curr) => acc + (curr.horas || 0), 0);
+                            const totalExpenses = expenses.reduce((acc, curr) => acc + (curr.monto || 0), 0);
+
+                            // LÓGICA DE CONTABILIDAD PARA ESTE TRABAJADOR
+                            let workerConfirmedIncome = 0;
+                            let workerPendingIncome = 0;
+                            timeEntries.forEach(te => {
+                                const amount = (te.horas || 0) * (te.tarifa_personalizada || 0);
+                                if (te.estado === 'cobrado' && te.estado_pago_contador === 'aprobado') {
+                                    workerConfirmedIncome += amount;
+                                } else {
+                                    workerPendingIncome += amount;
+                                }
+                            });
+
+                            return (
+                                <div key={worker.id} className={`bg-zinc-950 border transition-all duration-300 ${isExpanded ? 'border-zinc-700 shadow-2xl shadow-black' : 'border-zinc-900 hover:border-zinc-700'}`}>
                                     
-                                    <div className="ml-6 flex-grow">
-                                        <h2 className="text-xl font-bold uppercase tracking-widest text-white">{worker.primer_nombre} {worker.primer_apellido}</h2>
-                                        <p className="text-zinc-500 text-[10px] mt-1 uppercase tracking-widest">
-                                            {worker.rol} | MATRÍCULA: <span className="text-zinc-400">{worker.matricula_nro || 'N/A'}</span>
-                                        </p>
-                                    </div>
-                                    
-                                    <div className="text-right mr-8 hidden md:block">
-                                        <p className="text-[10px] text-zinc-600 font-black uppercase tracking-[0.3em] mb-1">TOTAL GENERADO</p>
-                                        <p className="text-green-500 font-bold tracking-wider">${finalTotal.toFixed(2)}</p>
-                                    </div>
-
-                                    <div className={`text-zinc-600 group-hover:text-white transition-colors ${isExpanded ? 'text-white' : ''}`}>
-                                        {isExpanded ? <ChevronUpIcon /> : <ChevronDownIcon />}
-                                    </div>
-                                </div>
-
-                                {isExpanded && (
-                                    <div className="p-8 border-t border-zinc-900 bg-black animate-in fade-in slide-in-from-top-2 duration-300">
+                                    <div onClick={() => toggleExpand(worker.id)} className="flex items-center p-6 cursor-pointer group">
+                                        <div className="relative w-14 h-14 flex-shrink-0">
+                                            <img src={worker.foto_url || 'https://via.placeholder.com/150'} alt="Perfil" className="w-full h-full rounded-full border-2 border-zinc-800 object-cover group-hover:border-zinc-500 transition-colors" />
+                                            {worker.color_perfil && (
+                                                <span className="absolute bottom-0 right-0 w-4 h-4 rounded-full border-2 border-black" style={{ backgroundColor: worker.color_perfil }}></span>
+                                            )}
+                                        </div>
                                         
-                                        <div className="flex justify-between items-center mb-6">
-                                            <p className="text-[10px] font-black uppercase text-zinc-600 tracking-[0.3em]">RESUMEN FINANCIERO</p>
+                                        <div className="ml-6 flex-grow">
+                                            <h2 className="text-xl font-bold uppercase tracking-widest text-white">{worker.primer_nombre} {worker.primer_apellido}</h2>
+                                            <p className="text-zinc-500 text-[10px] mt-1 uppercase tracking-widest">
+                                                {worker.rol} | MATRÍCULA: <span className="text-zinc-400">{worker.matricula_nro || 'N/A'}</span>
+                                            </p>
+                                        </div>
+                                        
+                                        <div className="text-right mr-8 hidden md:block">
+                                            <p className="text-[10px] text-zinc-600 font-black uppercase tracking-[0.3em] mb-1">CONFIRMADO</p>
+                                            <p className="text-green-500 font-bold tracking-wider">${workerConfirmedIncome.toFixed(2)}</p>
+                                        </div>
+
+                                        <div className={`text-zinc-600 group-hover:text-white transition-colors ${isExpanded ? 'text-white' : ''}`}>
+                                            {isExpanded ? <ChevronUpIcon /> : <ChevronDownIcon />}
+                                        </div>
+                                    </div>
+
+                                    {isExpanded && (
+                                        <div className="p-8 border-t border-zinc-900 bg-black animate-in fade-in slide-in-from-top-2 duration-300">
                                             
-                                            <button onClick={() => toggleRecords(worker.id)} className="bg-zinc-800 text-white font-bold py-2 px-6 text-[10px] tracking-widest uppercase hover:bg-zinc-700 transition-colors shadow-lg shadow-black/50">
-                                                {isShowingRecords ? 'OCULTAR REGISTROS' : 'VER REGISTROS'}
-                                            </button>
-                                        </div>
-                                        
-                                        <div className="bg-zinc-950 border border-zinc-900 p-6 mb-8">
-                                            <div className="flex justify-between items-center mb-3">
-                                                <p className="text-zinc-400 uppercase tracking-widest text-xs font-bold">Total Horas Trabajadas</p>
-                                                <p className="text-white font-mono font-bold">{totalHours.toFixed(2)} hrs</p>
-                                            </div>
-                                            <div className="flex justify-between items-center mb-3">
-                                                <p className="text-zinc-400 uppercase tracking-widest text-xs font-bold">Total Ingresos (Time Billing)</p>
-                                                <p className="text-white font-mono font-bold">${totalIncome.toFixed(2)}</p>
-                                            </div>
                                             <div className="flex justify-between items-center mb-6">
-                                                <p className="text-zinc-400 uppercase tracking-widest text-xs font-bold">Total Gastos Reembolsables</p>
-                                                <p className="text-white font-mono font-bold">${totalExpenses.toFixed(2)}</p>
+                                                <p className="text-[10px] font-black uppercase text-zinc-600 tracking-[0.3em]">RESUMEN FINANCIERO DEL MES</p>
+                                                
+                                                <button onClick={() => toggleRecords(worker.id)} className="bg-zinc-800 text-white font-bold py-2 px-6 text-[10px] tracking-widest uppercase hover:bg-zinc-700 transition-colors shadow-lg shadow-black/50">
+                                                    {isShowingRecords ? 'OCULTAR REGISTROS' : 'VER REGISTROS'}
+                                                </button>
                                             </div>
-                                            <div className="border-t-2 border-dashed border-zinc-800 pt-6 mt-2 flex justify-between items-center">
-                                                <p className="text-white uppercase tracking-[0.3em] text-sm font-black">TOTAL FINAL</p>
-                                                <p className="text-green-500 font-black text-3xl tracking-wider">${finalTotal.toFixed(2)}</p>
+                                            
+                                            <div className="bg-zinc-950 border border-zinc-900 p-6 mb-8">
+                                                <div className="flex justify-between items-center mb-3">
+                                                    <p className="text-zinc-400 uppercase tracking-widest text-xs font-bold">Total Horas Trabajadas</p>
+                                                    <p className="text-white font-mono font-bold">{totalHours.toFixed(2)} hrs</p>
+                                                </div>
+                                                <div className="flex justify-between items-center mb-3">
+                                                    <p className="text-zinc-400 uppercase tracking-widest text-xs font-bold">Gastos Reembolsables</p>
+                                                    <p className="text-white font-mono font-bold">${totalExpenses.toFixed(2)}</p>
+                                                </div>
+                                                <div className="border-t-2 border-dashed border-zinc-800 pt-6 mt-4 flex justify-between items-center">
+                                                    <p className="text-zinc-400 uppercase tracking-[0.2em] text-xs font-black">POR CONFIRMAR (AMARILLO)</p>
+                                                    <p className="text-yellow-500 font-black text-xl tracking-wider">${workerPendingIncome.toFixed(2)}</p>
+                                                </div>
+                                                <div className="border-t-2 border-dashed border-zinc-800 pt-4 mt-4 flex justify-between items-center">
+                                                    <p className="text-white uppercase tracking-[0.3em] text-sm font-black">TOTAL COBRADO (VERDE)</p>
+                                                    <p className="text-green-500 font-black text-3xl tracking-wider">${workerConfirmedIncome.toFixed(2)}</p>
+                                                </div>
                                             </div>
+
+                                            {isShowingRecords && (
+                                                <div className="mb-8 animate-in fade-in slide-in-from-top-4 duration-500">
+                                                    <p className="text-[10px] font-black uppercase text-zinc-600 tracking-[0.3em] mb-4">REGISTRO DE ACTIVIDADES (TIME BILLING)</p>
+                                                    {timeEntries.length === 0 ? (
+                                                        <div className="p-8 border border-dashed border-zinc-900 text-center text-zinc-600 text-xs tracking-widest uppercase">
+                                                            Este trabajador no tiene actividades registradas en este mes.
+                                                        </div>
+                                                    ) : (
+                                                        <div className={`max-h-[500px] space-y-3 pr-2 ${scrollbarStyle}`}>
+                                                            {timeEntries.map(te => {
+                                                                const isConfirmed = te.estado === 'cobrado' && te.estado_pago_contador === 'aprobado';
+                                                                const isRejected = te.estado_pago_contador === 'rechazado';
+                                                                
+                                                                const totalCobrar = (te.horas || 0) * (te.tarifa_personalizada || 0);
+                                                                const cliente = clientsDict[te.caso?.cliente_id] || {};
+                                                                
+                                                                return (
+                                                                    <div key={te.id} className={`bg-zinc-950 border ${isConfirmed ? 'border-green-900/50' : isRejected ? 'border-red-900/50' : 'border-yellow-900/50'} p-5 flex flex-col md:flex-row justify-between md:items-center gap-6 relative overflow-hidden`}>
+                                                                        <div className={`absolute top-0 left-0 w-1 h-full ${isConfirmed ? 'bg-green-500' : isRejected ? 'bg-red-500' : 'bg-yellow-500'}`}></div>
+                                                                        
+                                                                        <div className="flex-grow grid grid-cols-1 md:grid-cols-3 gap-6 pl-2">
+                                                                            <div>
+                                                                                <p className="text-zinc-500 font-mono text-[10px] mb-2">{te.fecha_tarea} • {te.hora_inicio}</p>
+                                                                                <p className="text-white font-bold text-xs uppercase tracking-widest">CLIENTE: <span className="text-zinc-300">{cliente.primer_nombre || 'N/A'} {cliente.primer_apellido || ''}</span></p>
+                                                                                <p className="text-white font-bold text-xs uppercase tracking-widest mt-1">CASO: <span className="text-zinc-300 font-mono">{te.caso?.titulo || 'Desconocido'}</span></p>
+                                                                            </div>
+                                                                            <div>
+                                                                                <p className="text-[10px] text-zinc-600 uppercase tracking-widest font-bold mb-1">ACTIVIDAD REALIZADA</p>
+                                                                                <p className="text-zinc-300 text-xs line-clamp-3">{te.descripcion_tarea}</p>
+                                                                                {isRejected && te.comentario_contador && (
+                                                                                    <p className="text-red-400 text-[10px] mt-2 font-bold uppercase tracking-widest">NOTA CONTADOR: {te.comentario_contador}</p>
+                                                                                )}
+                                                                            </div>
+                                                                            <div>
+                                                                                <p className="text-[10px] text-zinc-600 uppercase tracking-widest font-bold mb-1">TIEMPO Y TARIFA</p>
+                                                                                <p className="text-zinc-400 text-xs font-mono">TIEMPO: <strong className="text-white">{te.horas} hrs</strong></p>
+                                                                                <p className="text-zinc-400 text-xs font-mono mt-1">TARIFA: <strong className="text-white">${te.tarifa_personalizada || 0}/hr</strong></p>
+                                                                            </div>
+                                                                        </div>
+
+                                                                        <div className="flex-shrink-0 flex flex-col items-end md:border-l border-zinc-800 md:pl-8 pt-4 md:pt-0 border-t md:border-t-0">
+                                                                            <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-black mb-1">ESTADO PAGO</p>
+                                                                            {isConfirmed ? (
+                                                                                <p className="text-green-500 text-xl font-black tracking-wider flex items-center gap-1">
+                                                                                    ${totalCobrar.toFixed(2)} <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5"><path fillRule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12zm13.36-1.814a.75.75 0 10-1.22-.872l-3.236 4.53L9.53 12.22a.75.75 0 00-1.06 1.06l2.25 2.25a.75.75 0 001.14-.094l3.75-5.25z" clipRule="evenodd" /></svg>
+                                                                                </p>
+                                                                            ) : isRejected ? (
+                                                                                <p className="text-red-500 text-xl font-black tracking-wider line-through decoration-red-500/50">${totalCobrar.toFixed(2)}</p>
+                                                                            ) : (
+                                                                                <p className="text-yellow-500 text-xl font-black tracking-wider">${totalCobrar.toFixed(2)}</p>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
                                         </div>
-
-                                        {isShowingRecords && (
-                                            <div className="mb-8 animate-in fade-in slide-in-from-top-4 duration-500">
-                                                <p className="text-[10px] font-black uppercase text-zinc-600 tracking-[0.3em] mb-4">REGISTRO DE ACTIVIDADES (TIME BILLING)</p>
-                                                {timeEntries.length === 0 ? (
-                                                    <div className="p-8 border border-dashed border-zinc-900 text-center text-zinc-600 text-xs tracking-widest uppercase">
-                                                        Este trabajador no tiene actividades registradas en este mes.
-                                                    </div>
-                                                ) : (
-                                                    <div className={`max-h-[500px] space-y-3 pr-2 ${scrollbarStyle}`}>
-                                                        {timeEntries.map(te => {
-                                                            const totalCobrar = (te.horas || 0) * (te.tarifa_personalizada || 0);
-                                                            const cliente = clientsDict[te.caso?.cliente_id] || {};
-                                                            
-                                                            return (
-                                                                <div key={te.id} className="bg-zinc-950 border border-zinc-900 hover:border-zinc-700 transition-colors p-5 flex flex-col md:flex-row justify-between md:items-center gap-6">
-                                                                    <div className="flex-grow grid grid-cols-1 md:grid-cols-3 gap-6">
-                                                                        <div>
-                                                                            <p className="text-zinc-500 font-mono text-[10px] mb-2">{te.fecha_tarea} • {te.hora_inicio}</p>
-                                                                            <p className="text-white font-bold text-xs uppercase tracking-widest">CLIENTE: <span className="text-zinc-300">{cliente.primer_nombre || 'N/A'} {cliente.primer_apellido || ''}</span></p>
-                                                                            <p className="text-white font-bold text-xs uppercase tracking-widest mt-1">CASO: <span className="text-zinc-300 font-mono">{te.caso?.titulo || 'Desconocido'}</span></p>
-                                                                        </div>
-                                                                        <div>
-                                                                            <p className="text-[10px] text-zinc-600 uppercase tracking-widest font-bold mb-1">ACTIVIDAD REALIZADA</p>
-                                                                            <p className="text-zinc-300 text-xs line-clamp-3">{te.descripcion_tarea}</p>
-                                                                        </div>
-                                                                        <div>
-                                                                            <p className="text-[10px] text-zinc-600 uppercase tracking-widest font-bold mb-1">TIEMPO Y TARIFA</p>
-                                                                            <p className="text-zinc-400 text-xs font-mono">TIEMPO: <strong className="text-white">{te.horas} hrs</strong></p>
-                                                                            <p className="text-zinc-400 text-xs font-mono mt-1">TARIFA: <strong className="text-white">${te.tarifa_personalizada || 0}/hr</strong></p>
-                                                                        </div>
-                                                                    </div>
-
-                                                                    <div className="flex-shrink-0 flex flex-col items-end md:border-l border-zinc-800 md:pl-8 pt-4 md:pt-0 border-t md:border-t-0">
-                                                                        <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-black mb-1">PRECIO A COBRAR</p>
-                                                                        <p className="text-green-500 text-2xl font-black tracking-wider">${totalCobrar.toFixed(2)}</p>
-                                                                    </div>
-                                                                </div>
-                                                            );
-                                                        })}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-                            </div>
-                        );
-                    })}
-                </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                </>
             )}
         </div>
     );

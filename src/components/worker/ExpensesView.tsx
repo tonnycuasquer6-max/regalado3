@@ -190,8 +190,7 @@ const ExpensesView: React.FC = () => {
     const totalExpenses = expenses.reduce((acc, curr) => acc + (curr.monto || 0), 0);
 
     const clientOptions = Object.values(clientsDict);
-    const filteredCases = Object.values(casesDict).filter(c => c.cliente_id === expClientId && c.estado === 'abierto');
-
+    const filteredCases = Object.values(casesDict).filter((c: any) => c.cliente_id === expClientId && c.estado === 'abierto');
     return (
         <Fragment>
             <style>{`
