@@ -46,7 +46,7 @@ const NumberControl = ({ label, value, step, min, onChange, isMoney = false, pre
     return (
         <div>
             <label className={`block text-[10px] font-black mb-2 uppercase tracking-[0.3em] ${labelColor}`}>{label}</label>
-            <div className={`flex items-center bg-transparent border-b transition-colors group py-1 ${borderColor}`}>
+            <div className={`flex items-center bg-transparent border-b py-1 transition-colors group ${borderColor}`}>
                 <div className={`flex-grow flex justify-start items-center font-mono text-base ${textColor}`}>
                     {prefix && <span className="mr-1 opacity-70">{prefix}</span>}
                     <input 
@@ -151,7 +151,6 @@ const ExpensesView: React.FC = () => {
             }
         }
 
-        // SOLUCIÓN DEFINITIVA: Se envía foto_url con texto vacío para saltar la validación "not-null" de tu BD si no subes archivo.
         const { error } = await supabase.from('gastos').insert({
             perfil_id: userProfile.id,
             trabajador_id: userProfile.id,
@@ -191,6 +190,7 @@ const ExpensesView: React.FC = () => {
 
     const clientOptions = Object.values(clientsDict);
     const filteredCases = Object.values(casesDict).filter((c: any) => c.cliente_id === expClientId && c.estado === 'abierto');
+
     return (
         <Fragment>
             <style>{`

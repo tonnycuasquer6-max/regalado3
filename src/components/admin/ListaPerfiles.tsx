@@ -20,6 +20,7 @@ function useSessionState<T>(key: string, initialValue: T): [T, React.Dispatch<Re
     return [state, setState];
 }
 
+// --- ICONOS ---
 const PlusCircleIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 pointer-events-none"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v6m3-3H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
 const EyeIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 pointer-events-none"><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>;
 const DocumentIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 inline-block mr-1 pointer-events-none"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>;
@@ -31,10 +32,9 @@ const ChevronUpIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" 
 const ChevronDownIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>;
 const PaperClipIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 pointer-events-none"><path strokeLinecap="round" strokeLinejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" /></svg>;
 
-
 const scrollbarStyle = "overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-zinc-800 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-zinc-700 transition-colors";
 
-interface Profile { id: string; primer_nombre: string; primer_apellido: string; cedula: string; email: string; foto_url: string | null; rol: string; categoria_usuario: 'abogado' | 'estudiante' | 'cliente'; estado_aprobacion: string; color_perfil?: string; }
+interface Profile { id: string; primer_nombre: string; primer_apellido: string; cedula: string; email: string; foto_url: string | null; rol: string; categoria_usuario: 'abogado' | 'estudiante' | 'cliente' | 'asociado'; estado_aprobacion: string; color_perfil?: string; }
 interface Case { id: string; created_at: string; titulo: string; descripcion: string; estado: string; cliente_id: string; }
 interface CaseUpdate { id: string; created_at: string; descripcion: string; file_url: string | null; file_name: string | null; estado_aprobacion: string; observacion: string | null; }
 
@@ -71,7 +71,7 @@ const NumberControl = ({ label, value, step, min, onChange, isMoney = false, pre
     );
 };
 
-const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; isContador?: boolean; onCancel: () => void }> = ({ role, isContador, onCancel }) => {
+const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente' | 'asociado'; isContador?: boolean; onCancel: () => void }> = ({ role, isContador, onCancel }) => {
     const [profiles, setProfiles] = useState<Profile[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [loading, setLoading] = useState(true);
@@ -88,9 +88,9 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; isCo
     const [caseDesc, setCaseDesc] = useSessionState('admin_case_desc', '');
     const [presetSearch, setPresetSearch] = useSessionState('admin_case_search', '');
     const [presetOption, setPresetOption] = useSessionState<number | null>('admin_case_opt', null);
-    const [isPresetDropdownOpen, setIsPresetDropdownOpen] = useState(false); // Para el buscador dropdown
+    const [isPresetDropdownOpen, setIsPresetDropdownOpen] = useState(false); 
     
-    // VARIABLES PARA CASO PERSONALIZADO (PROBLEMA 4)
+    // VARIABLES PARA CASO PERSONALIZADO
     const [customHours, setCustomHours] = useSessionState<number>('admin_case_hrs', 1);
     const [customRate, setCustomRate] = useSessionState<number>('admin_case_rate', 0);
 
@@ -142,7 +142,7 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; isCo
 
     useEffect(() => { 
         fetchProfiles(); 
-        if (role === 'abogado' || role === 'estudiante') fetchUsedColors();
+        if (role === 'abogado' || role === 'estudiante' || role === 'asociado') fetchUsedColors();
     }, [fetchProfiles, role]);
 
     const handleUpdateProfile = async (e: React.FormEvent) => { 
@@ -158,6 +158,7 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; isCo
         setActionLoading(false); 
     };
     
+    // --- LÓGICA DE BORRADO DURO (HARD DELETE) Y BACKUP DE ARCHIVOS ---
     const handleDeleteProfile = async () => { 
         if (!profileToDelete) return; 
         setConfirmDialog({
@@ -607,7 +608,7 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; isCo
                         <div key={p.id} className="group flex items-center p-4 hover:bg-zinc-900/50 transition-colors">
                             <div className="relative w-14 h-14">
                                 <img src={p.foto_url || 'https://via.placeholder.com/150'} className="w-full h-full rounded-full border-2 border-zinc-800 object-cover" />
-                                {(role === 'abogado' || role === 'estudiante') && p.color_perfil && (
+                                {(role === 'abogado' || role === 'estudiante' || role === 'asociado') && p.color_perfil && (
                                     <span className="absolute bottom-0 right-0 w-4 h-4 rounded-full border-2 border-black" style={{ backgroundColor: p.color_perfil }}></span>
                                 )}
                             </div>
@@ -622,7 +623,7 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; isCo
                                         {!isContador && <button onClick={() => {setCreateCaseClient(p); setCaseTitle(''); setCaseDesc(''); setCaseType(null); setPresetOption(null);}} className="text-zinc-500 hover:text-green-400 transition-colors" title="Nuevo Caso"><PlusCircleIcon /></button>}
                                     </>
                                 )}
-                                {!isContador && (role === 'abogado' || role === 'estudiante') && (
+                                {!isContador && (role === 'abogado' || role === 'estudiante' || role === 'asociado') && (
                                     <>
                                         <button onClick={() => handleOpenViewAssignedCases(p)} className="text-zinc-500 hover:text-blue-500 transition-colors" title="Ver Casos Asignados"><EyeIcon /></button>
                                         <button onClick={() => handleOpenPermissions(p)} className="text-zinc-500 hover:text-yellow-500 transition-colors" title="Gestionar Visibilidad/Permisos"><ShieldIcon /></button>
@@ -804,68 +805,6 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; isCo
                                         </form>
                                     </div>
                                 )}
-                            </div>
-                        )}
-
-                        {viewAssignedProfile && (
-                            <div className="flex flex-col h-[85vh]">
-                                <div className="p-6 bg-zinc-950 border-b border-zinc-900 flex-shrink-0">
-                                    <button onClick={() => setActiveCaseHistory(null)} className="text-zinc-500 hover:text-white text-[10px] uppercase tracking-widest mb-2 flex items-center gap-2 transition-colors">
-                                        ‹ Volver a la Lista
-                                    </button>
-                                    <h2 className="text-lg font-bold italic tracking-widest uppercase text-white mt-2 flex items-center gap-4">
-                                        PANEL DE REVISIÓN: {activeCaseHistory.titulo}
-                                        {activeCaseHistory.estado === 'cerrado' && <span className="text-red-500 border border-red-900/50 bg-red-950/30 text-[8px] font-black py-1 px-3 uppercase tracking-widest">CASO CERRADO</span>}
-                                    </h2>
-                                </div>
-                                
-                                <div className={`p-6 flex-grow bg-black space-y-8 ${scrollbarStyle}`}>
-                                    {loadingUpdates ? <p className="text-zinc-500 text-sm">Cargando historial...</p> : caseUpdates.length === 0 ? <p className="text-zinc-600 text-sm italic">No hay actividad para revisar en este caso.</p> : (
-                                        caseUpdates.map((u) => {
-                                            const status = u.estado_aprobacion || 'pendiente';
-                                            const isPending = status === 'pendiente';
-                                            const isRejected = status === 'rechazado';
-                                            const isApproved = status === 'aprobado';
-                                            
-                                            return (
-                                                <div key={u.id} className={`relative pl-6 border-l group/item ${isRejected ? 'border-red-900' : 'border-zinc-800'}`}>
-                                                    <div className={`absolute w-2 h-2 rounded-full -left-[5px] top-1.5 ring-4 ring-black ${isRejected ? 'bg-red-600' : (isPending ? 'bg-yellow-500' : 'bg-green-500')}`}></div>
-                                                    
-                                                    <div className="flex justify-between items-start">
-                                                        <div className="flex items-center gap-2">
-                                                            <p className="text-[10px] text-zinc-600 font-mono">{new Date(u.created_at).toLocaleString()}</p>
-                                                            {isPending && <span className="bg-yellow-900/30 text-yellow-500 text-[8px] uppercase px-1 py-0.5 rounded font-bold">Pendiente de Revisión</span>}
-                                                            {isRejected && <span className="bg-red-900/30 text-red-500 text-[8px] uppercase px-1 py-0.5 rounded font-bold">Rechazado</span>}
-                                                            {isApproved && <span className="bg-green-900/30 text-green-500 text-[8px] uppercase px-1 py-0.5 rounded font-bold">Aprobado</span>}
-                                                        </div>
-                                                        
-                                                        {activeCaseHistory.estado !== 'cerrado' && (
-                                                            <div className="flex gap-4 opacity-0 group-hover/item:opacity-100 transition-opacity items-center">
-                                                                {!isApproved && !isRejected && <button type="button" onClick={(e) => { e.stopPropagation(); handleApproveUpdate(u.id); }} className="text-green-600 hover:text-green-400" title="Aprobar (Dar Visto)"><CheckIcon /></button>}
-                                                                {!isApproved && <button type="button" onClick={(e) => { e.stopPropagation(); setRejectDialog({ isOpen: true, updateId: u.id }); }} className="text-red-500 hover:text-red-400" title="Mandar a corregir (Rechazar)"><XMarkIcon /></button>}
-                                                                <button type="button" onClick={(e) => { e.stopPropagation(); handleDeleteUpdate(u); }} className="text-zinc-600 hover:text-red-500 transition-colors ml-2" title="Eliminar permanentemente"><TrashIcon /></button>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                    
-                                                    <p className="text-sm text-zinc-300 mt-1">{u.descripcion}</p>
-                                                    
-                                                    {u.file_url && (
-                                                        <a href={u.file_url} target="_blank" rel="noreferrer" className={`inline-flex items-center text-[10px] bg-zinc-900 border px-3 py-1.5 mt-3 uppercase tracking-widest transition-colors ${isRejected ? 'border-red-900 text-red-400 hover:bg-red-950' : 'border-zinc-800 text-blue-400 hover:bg-zinc-800'}`}>
-                                                            <DocumentIcon /> {u.file_name}
-                                                        </a>
-                                                    )}
-
-                                                    {isRejected && u.observacion && (
-                                                        <div className="mt-3 bg-red-950/30 border border-red-900 p-2 text-xs text-red-400">
-                                                            <strong className="uppercase text-[10px] tracking-widest block mb-1">Motivo de Rechazo:</strong>{u.observacion}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            );
-                                        })
-                                    )}
-                                </div>
                             </div>
                         )}
                     </Fragment>
@@ -1111,7 +1050,7 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; isCo
                         <InputField label="Cédula" value={editFormData.cedula || ''} onChange={(e: any) => setEditFormData({...editFormData, cedula: e.target.value})} />
                         <InputField label="Email" value={editFormData.email || ''} onChange={(e: any) => setEditFormData({...editFormData, email: e.target.value})} />
                         
-                        {(role === 'abogado' || role === 'estudiante') && (
+                        {(role === 'abogado' || role === 'estudiante' || role === 'asociado') && (
                             <div className="col-span-2 pt-6 border-t border-zinc-900 mt-2">
                                 <label className="block text-zinc-500 text-[10px] font-black uppercase tracking-[0.3em] mb-4">
                                     Color de Identificación
@@ -1161,7 +1100,7 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; isCo
                     <h2 className="text-xl font-bold text-white mb-4 italic tracking-widest uppercase">{confirmDialog.title}</h2>
                     <p className="text-zinc-400 mb-8">{confirmDialog.message}</p>
                     <div className="flex justify-center gap-4">
-                        <button onClick={() => setConfirmDialog({ ...confirmDialog, isOpen: false })} className="py-2 px-6 text-zinc-400 hover:text-white transition-colors text-[10px] uppercase font-bold tracking-widest">Cancelar</button>
+                        <button onClick={() => setConfirmDialog({ ...confirmDialog, isOpen: false })} className="py-2 px-6 text-zinc-400 hover:text-white transition-colors text-[10px] uppercase font-bold tracking-widest border border-white/10 rounded-xl hover:bg-white/5">Cancelar</button>
                         <button onClick={() => { confirmDialog.onConfirm(); setConfirmDialog({ ...confirmDialog, isOpen: false }); }} disabled={actionLoading} className="bg-red-900 text-white font-bold py-2 px-6 hover:bg-red-800 transition-colors uppercase tracking-widest text-[10px] disabled:opacity-50">Confirmar</button>
                     </div>
                 </div>
