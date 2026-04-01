@@ -185,7 +185,6 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
       const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
       setCurrentUserProfile(profile);
 
-      // CORRECCIÓN: Filtrar solo clientes y casos asignados
       const { data: asignaciones } = await supabase.from('asignaciones_casos').select('case_id').eq('abogado_id', session.user.id);
       const assignedCaseIds = asignaciones ? asignaciones.map(a => a.case_id) : [];
 
@@ -216,8 +215,9 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
     const startOfWeek = getStartOfWeek(currentDate);
     const endOfWeek = new Date(startOfWeek); endOfWeek.setDate(startOfWeek.getDate() + 6);
     
+    // SOLUCIÓN AL PROBLEMA 1: Ruta explícita para evitar choque de FK
     const { data } = await supabase.from('time_entries')
-        .select('*, profiles(primer_nombre, primer_apellido, rol, color_perfil), cases(titulo, cliente_id)')
+        .select('*, perfil:profiles!perfil_id(primer_nombre, primer_apellido, rol, color_perfil), caso:cases!caso_id(titulo, cliente_id)')
         .eq('perfil_id', profile.id)
         .gte('fecha_tarea', toYYYYMMDD(startOfWeek))
         .lte('fecha_tarea', toYYYYMMDD(endOfWeek));
@@ -248,7 +248,7 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
   };
 
   const openEditEntryModal = (entry: any) => {
-    setEditingEntry(entry); setSelectedSlot({ date: entry.fecha_tarea, hour: parseInt(entry.hora_inicio.split(':')[0]) }); setSelectedClientId(entry.cases?.cliente_id || ''); setSelectedCaseId(entry.caso_id); setTaskDescription(entry.descripcion_tarea); setHoursWorked(entry.horas); setRate(entry.tarifa_personalizada || 0); setPagoStatus(entry.estado || 'por_cobrar'); setIsModalOpen(true);
+    setEditingEntry(entry); setSelectedSlot({ date: entry.fecha_tarea, hour: parseInt(entry.hora_inicio.split(':')[0]) }); setSelectedClientId(entry.caso?.cliente_id || ''); setSelectedCaseId(entry.caso_id); setTaskDescription(entry.descripcion_tarea); setHoursWorked(entry.horas); setRate(entry.tarifa_personalizada || 0); setPagoStatus(entry.estado || 'por_cobrar'); setIsModalOpen(true);
   };
 
   const attemptSaveEntry = (e: React.FormEvent) => {
@@ -411,7 +411,10 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
                         const top = (entryHour - 6) * 60;
                         const height = entry.horas * 60;
                         const { width, left } = layout[entry.id];
-                        const profileColor = entry.profiles?.color_perfil || '#3b82f6';
+                        
+                        // Utilizamos la nueva ruta segura para evitar errores de null
+                        const profileColor = (entry as any).perfil?.color_perfil || '#3b82f6';
+                        const caseTitle = (entry as any).caso?.titulo || 'Caso Desconocido';
 
                         return (
                           <div key={entry.id} 
@@ -422,7 +425,7 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
                                style={{ top: `${top}px`, height: `${height}px`, left: `calc(${left} + 2px)`, width: `calc(${width} - 4px)`, borderLeft: `4px solid ${profileColor}` }} 
                                onClick={(e) => { e.stopPropagation(); openEditEntryModal(entry); }}>
                             <div className="flex items-center justify-between gap-2 mb-1">
-                              <p className="font-bold text-white text-[10px] uppercase tracking-wider truncate" style={{ color: profileColor }}>{entry.cases?.titulo}</p>
+                              <p className="font-bold text-white text-[10px] uppercase tracking-wider truncate" style={{ color: profileColor }}>{caseTitle}</p>
                               <span className={`text-[8px] px-2 py-1 rounded-full font-black ${getTimeBillingBadge(entry.horas).color}`}>
                                 {getTimeBillingBadge(entry.horas).label}
                               </span>
@@ -454,7 +457,7 @@ const TimeBillingView: React.FC<{ onCancel?: () => void; session: Session }> = (
                 <div>
                     <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">Trabajador</label>
                     <div className="w-full py-2 px-0 bg-transparent border-b-2 border-zinc-800 text-white opacity-70">
-                        {editingEntry ? `${editingEntry.profiles?.primer_nombre} ${editingEntry.profiles?.primer_apellido}` : `${currentUserProfile?.primer_nombre} ${currentUserProfile?.primer_apellido}`}
+                        {editingEntry ? `${(editingEntry as any).perfil?.primer_nombre} ${(editingEntry as any).perfil?.primer_apellido}` : `${currentUserProfile?.primer_nombre} ${currentUserProfile?.primer_apellido}`}
                     </div>
                 </div>
                 

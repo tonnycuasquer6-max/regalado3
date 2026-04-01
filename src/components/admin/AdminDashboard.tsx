@@ -220,7 +220,10 @@ const AdminChatView: React.FC<{ session: Session }> = ({ session }) => {
       <div className="w-full md:w-1/3 border-b md:border-b-0 md:border-r border-white/10 flex flex-col bg-black/40">
         <div className="flex border-b border-white/10 flex-shrink-0 overflow-x-auto scrollbar-hide">
           <button onClick={() => setActiveTab('administrador')} className={`flex-shrink-0 px-4 py-4 text-[10px] font-black uppercase tracking-widest transition-colors ${activeTab === 'administrador' ? 'bg-white/10 text-white border-b-2 border-white' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}>
-            Administradores
+            Admin
+          </button>
+          <button onClick={() => setActiveTab('asociado')} className={`flex-shrink-0 px-4 py-4 text-[10px] font-black uppercase tracking-widest transition-colors ${activeTab === 'asociado' ? 'bg-white/10 text-white border-b-2 border-white' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}>
+            Asociados
           </button>
           <button onClick={() => setActiveTab('abogado')} className={`flex-shrink-0 px-4 py-4 text-[10px] font-black uppercase tracking-widest transition-colors ${activeTab === 'abogado' ? 'bg-white/10 text-white border-b-2 border-white' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}>
             Abogados

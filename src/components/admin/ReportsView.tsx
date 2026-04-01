@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../services/supabaseClient';
 
 const ChevronLeftIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>;
-const ChevronRightIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>;
+const ChevronRightIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5" /></svg>;
 const ChevronDownIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5 pointer-events-none"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>;
 const ChevronUpIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5 pointer-events-none"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" /></svg>;
 
@@ -35,14 +35,14 @@ const ReportsView: React.FC<ReportsViewProps> = ({ onCancel }) => {
         const startStr = startOfMonth.toISOString().split('T')[0];
         const endStr = endOfMonth.toISOString().split('T')[0];
 
-        const { data: workers } = await supabase.from('profiles').select('*').in('categoria_usuario', ['abogado', 'estudiante']).eq('estado_aprobacion', 'aprobado');
+        // CORRECCIÓN: Agregamos 'asociado' a la lista de consulta
+        const { data: workers } = await supabase.from('profiles').select('*').in('categoria_usuario', ['abogado', 'estudiante', 'asociado']).eq('estado_aprobacion', 'aprobado');
         
         const { data: clientsData } = await supabase.from('profiles').select('id, primer_nombre, primer_apellido').eq('rol', 'cliente');
         const cDict: Record<string, any> = {};
         clientsData?.forEach(c => { cDict[c.id] = c; });
         setClientsDict(cDict);
 
-        // AHORA TRAEMOS TAMBIÉN EL ESTADO DEL CONTADOR
         const { data: timeEntries } = await supabase.from('time_entries').select('*, caso:cases(titulo, cliente_id)').gte('fecha_tarea', startStr).lte('fecha_tarea', endStr).order('fecha_tarea', { ascending: false });
 
         let expensesData: any[] = [];
@@ -84,7 +84,6 @@ const ReportsView: React.FC<ReportsViewProps> = ({ onCancel }) => {
 
     const monthName = currentMonth.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }).toUpperCase();
 
-    // CALCULO GLOBAL DE TOTALES
     let totalGlobalConfirmed = 0;
     let totalGlobalPending = 0;
     
@@ -98,9 +97,8 @@ const ReportsView: React.FC<ReportsViewProps> = ({ onCancel }) => {
     });
 
     return (
-        <div className="max-w-5xl mx-auto animate-in fade-in duration-500 font-mono text-white pb-12 relative">
+        <div className="max-w-5xl mx-auto animate-in fade-in duration-500 font-mono text-white pb-12 relative w-full">
             
-            {/* ESTILO GLOBAL PARA DESAPARECER LA BARRA DE SCROLL */}
             <style>{`
                 ::-webkit-scrollbar {
                     width: 0px !important;
@@ -141,7 +139,6 @@ const ReportsView: React.FC<ReportsViewProps> = ({ onCancel }) => {
                 <div className="bg-black border border-zinc-900 p-8 text-center text-zinc-500">No hay trabajadores registrados en el sistema.</div>
             ) : (
                 <>
-                    {/* PANEL GLOBAL DE INGRESOS */}
                     <div className="bg-black border border-zinc-800 p-8 mb-8 flex justify-around divide-x divide-zinc-800 text-center shadow-2xl">
                         <div className="w-1/2 px-4">
                             <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-black mb-2">Ingresos Generados (A Confirmar)</p>
@@ -161,7 +158,6 @@ const ReportsView: React.FC<ReportsViewProps> = ({ onCancel }) => {
                             const totalHours = timeEntries.reduce((acc, curr) => acc + (curr.horas || 0), 0);
                             const totalExpenses = expenses.reduce((acc, curr) => acc + (curr.monto || 0), 0);
 
-                            // LÓGICA DE CONTABILIDAD PARA ESTE TRABAJADOR
                             let workerConfirmedIncome = 0;
                             let workerPendingIncome = 0;
                             timeEntries.forEach(te => {

@@ -40,41 +40,75 @@ const TrashIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" view
 const InputField: React.FC<any> = ({ label, type = 'text', ...props }) => (
     <div>
         <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">{label}</label>
-        <input type={type} className="w-full py-2 px-0 bg-transparent border-b-2 border-zinc-800 text-white focus:outline-none focus:border-zinc-500 transition-colors" {...props} />
+        <input type={type} className="w-full py-2 px-0 bg-transparent border-b-2 border-zinc-800 text-white focus:outline-none focus:border-zinc-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" {...props} />
     </div>
 );
 
-const SelectField: React.FC<any> = ({ label, options, ...props }) => (
-     <div>
-        <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">{label}</label>
-        <select className="w-full py-2 px-0 bg-transparent border-b-2 border-zinc-800 text-white focus:outline-none focus:border-zinc-500 transition-colors disabled:opacity-50" {...props}>
-            <option value="" className="bg-black">Seleccionar...</option>
-            {options.map((opt: any) => (
-                <option key={opt.id} value={opt.id} className="bg-black">{opt.titulo || `${opt.primer_nombre || ''} ${opt.primer_apellido || ''}`.trim()}</option>
-            ))}
-        </select>
-    </div>
-);
+// --- COMPONENTE SELECTOR CUSTOMIZADO ---
+const CustomSelect: React.FC<{ label: string; value: string; onChange: (val: string) => void; options: {id: string, label: string}[], disabled?: boolean }> = ({ label, value, onChange, options, disabled }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const selectedOpt = options.find(o => o.id === value);
 
-const NumberControl: React.FC<any> = ({ label, value, step, min, onChange, isTime = false, isMoney = false, prefix = '' }) => {
-    const handleDecrease = () => { let newVal = value - step; if (newVal < min) newVal = min; onChange(Math.round(newVal * 10000) / 10000); };
-    const handleIncrease = () => { let newVal = value + step; onChange(Math.round(newVal * 10000) / 10000); };
+    return (
+        <div className={`relative ${disabled ? 'opacity-50 pointer-events-none' : ''}`}>
+            <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">{label}</label>
+            <div 
+                onClick={() => !disabled && setIsOpen(!isOpen)}
+                className="w-full py-2 px-0 bg-transparent border-b-2 border-zinc-800 text-white uppercase tracking-widest text-[11px] font-bold cursor-pointer flex justify-between items-center transition-all focus-within:border-zinc-500"
+            >
+                <span className="truncate pr-4 text-zinc-300">
+                    {selectedOpt ? selectedOpt.label : 'Seleccionar...'}
+                </span>
+                <svg className={`fill-current h-4 w-4 text-zinc-500 transition-transform duration-300 flex-shrink-0 ${isOpen ? 'rotate-180' : ''}`} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+            </div>
+            
+            {isOpen && (
+                <>
+                    <div className="fixed inset-0 z-[10000]" onClick={() => setIsOpen(false)}></div>
+                    <div className="absolute top-full left-0 w-full mt-2 bg-black border border-zinc-800 shadow-2xl z-[10001] flex flex-col max-h-48 overflow-y-auto animate-in fade-in slide-in-from-top-2 duration-200 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                        <button
+                            type="button"
+                            onClick={() => { onChange(''); setIsOpen(false); }}
+                            className={`p-4 text-left text-[10px] uppercase tracking-widest font-bold transition-colors ${!value ? 'bg-zinc-900 text-white border-l-2 border-white' : 'text-zinc-500 hover:text-white hover:bg-zinc-900 border-l-2 border-transparent'}`}
+                        >
+                            Seleccionar...
+                        </button>
+                        {options.map(opt => (
+                            <button
+                                key={opt.id}
+                                type="button"
+                                onClick={() => { onChange(opt.id); setIsOpen(false); }}
+                                className={`p-4 text-left text-[10px] uppercase tracking-widest font-bold transition-colors ${value === opt.id ? 'bg-zinc-900 text-white border-l-2 border-white' : 'text-zinc-500 hover:text-white hover:bg-zinc-900 border-l-2 border-transparent'}`}
+                            >
+                                {opt.label}
+                            </button>
+                        ))}
+                    </div>
+                </>
+            )}
+        </div>
+    );
+};
+
+const NumberControl: React.FC<any> = ({ label, value, step, min, onChange, isTime = false, isMoney = false, prefix = '', disabled = false }) => {
+    const handleDecrease = () => { if (disabled) return; let newVal = value - step; if (newVal < min) newVal = min; onChange(Math.round(newVal * 10000) / 10000); };
+    const handleIncrease = () => { if (disabled) return; let newVal = value + step; onChange(Math.round(newVal * 10000) / 10000); };
     const formatTime = (decimalHours: number) => { const totalMinutes = Math.round(decimalHours * 60); const h = Math.floor(totalMinutes / 60); const m = totalMinutes % 60; return `${h}h ${m}m`; };
 
     const textColor = isMoney ? 'text-green-400' : 'text-white';
     const borderColor = isMoney ? 'border-green-900/50 focus-within:border-green-500' : 'border-zinc-800 focus-within:border-zinc-500';
 
     return (
-        <div>
+        <div className={disabled ? 'opacity-50 pointer-events-none' : ''}>
             <label className={`block text-[10px] font-black mb-2 uppercase tracking-[0.3em] ${isMoney ? 'text-green-700' : 'text-zinc-500'}`}>{label}</label>
             <div className={`flex items-center bg-transparent border-b-2 transition-colors group pb-1 ${borderColor}`}>
                 <div className={`flex-grow flex justify-start items-center font-mono text-xl ${textColor}`}>
                     {prefix && <span className="mr-1 opacity-70">{prefix}</span>}
-                    <input type="number" value={value === 0 ? '' : value} onChange={(e) => onChange(e.target.value ? parseFloat(e.target.value) : 0)} className="w-full bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" step="any" min={min} />
+                    <input type="number" value={value === 0 ? '' : value} onChange={(e) => onChange(e.target.value ? parseFloat(e.target.value) : 0)} disabled={disabled} className="w-full bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" step="any" min={min} />
                 </div>
                 <div className="flex flex-col ml-2 justify-center">
-                    <button type="button" onClick={handleIncrease} className={`hover:text-white transition-colors flex items-center justify-center p-0.5 ${isMoney ? 'text-green-700 hover:text-green-400' : 'text-zinc-600'}`}><ChevronUpIcon /></button>
-                    <button type="button" onClick={handleDecrease} className={`hover:text-white transition-colors flex items-center justify-center p-0.5 mt-0.5 ${isMoney ? 'text-green-700 hover:text-green-400' : 'text-zinc-600'}`}><ChevronDownIcon /></button>
+                    <button type="button" onClick={handleIncrease} disabled={disabled} className={`hover:text-white transition-colors flex items-center justify-center p-0.5 ${isMoney ? 'text-green-700 hover:text-green-400' : 'text-zinc-600'}`}><ChevronUpIcon /></button>
+                    <button type="button" onClick={handleDecrease} disabled={disabled} className={`hover:text-white transition-colors flex items-center justify-center p-0.5 mt-0.5 ${isMoney ? 'text-green-700 hover:text-green-400' : 'text-zinc-600'}`}><ChevronDownIcon /></button>
                 </div>
             </div>
             {isTime && ( <div className="text-xs text-zinc-500 font-mono mt-3 text-left uppercase tracking-widest">equivale a: <span className="text-zinc-300 font-bold ml-1">{formatTime(value)}</span></div> )}
@@ -159,8 +193,15 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
     if (!profile) return;
     const startOfWeek = getStartOfWeek(currentDate);
     const endOfWeek = new Date(startOfWeek); endOfWeek.setDate(startOfWeek.getDate() + 6);
-    let query = supabase.from('time_entries').select('*, profiles(primer_nombre, primer_apellido, rol, color_perfil), cases(titulo, cliente_id)').gte('fecha_tarea', toYYYYMMDD(startOfWeek)).lte('fecha_tarea', toYYYYMMDD(endOfWeek));
+    
+    // SOLUCIÓN AL PROBLEMA 1: Ruta explícita para evitar choque de FK (profiles!perfil_id y cases!caso_id)
+    let query = supabase.from('time_entries')
+        .select('*, perfil:profiles!perfil_id(primer_nombre, primer_apellido, rol, color_perfil), caso:cases!caso_id(titulo, cliente_id)')
+        .gte('fecha_tarea', toYYYYMMDD(startOfWeek))
+        .lte('fecha_tarea', toYYYYMMDD(endOfWeek));
+        
     if (profile.rol !== 'admin') query = query.eq('perfil_id', profile.id);
+    
     const { data } = await query;
     setTimeEntries(data || []);
   }, [currentDate]);
@@ -186,7 +227,7 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
   };
 
   const openEditEntryModal = (entry: any) => {
-    setEditingEntry(entry); setSelectedSlot({ date: entry.fecha_tarea, hour: parseInt(entry.hora_inicio.split(':')[0]) }); setSelectedClientId(entry.cases?.cliente_id || ''); setSelectedCaseId(entry.caso_id); setTaskDescription(entry.descripcion_tarea); setHoursWorked(entry.horas); setRate(entry.tarifa_personalizada || 0); setPagoStatus(entry.estado || 'por_cobrar'); setIsModalOpen(true);
+    setEditingEntry(entry); setSelectedSlot({ date: entry.fecha_tarea, hour: parseInt(entry.hora_inicio.split(':')[0]) }); setSelectedClientId(entry.caso?.cliente_id || ''); setSelectedCaseId(entry.caso_id); setTaskDescription(entry.descripcion_tarea); setHoursWorked(entry.horas); setRate(entry.tarifa_personalizada || 0); setPagoStatus(entry.estado || 'por_cobrar'); setIsModalOpen(true);
   };
 
   const handleSaveEntry = async (e: React.FormEvent) => {
@@ -336,7 +377,10 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
                         const top = (entryHour - 6) * 60;
                         const height = entry.horas * 60;
                         const { width, left } = layout[entry.id];
-                        const profileColor = entry.profiles?.color_perfil || '#3b82f6';
+                        
+                        // Utilizamos la nueva ruta segura para evitar errores de null
+                        const profileColor = (entry as any).perfil?.color_perfil || '#3b82f6';
+                        const caseTitle = (entry as any).caso?.titulo || 'Caso Desconocido';
 
                         return (
                           <div key={entry.id} 
@@ -347,7 +391,7 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
                                style={{ top: `${top}px`, height: `${height}px`, left: `calc(${left} + 2px)`, width: `calc(${width} - 4px)`, borderLeft: `4px solid ${profileColor}` }} 
                                onClick={(e) => { e.stopPropagation(); openEditEntryModal(entry); }}>
                             <div className="flex items-center justify-between gap-2 mb-1">
-                              <p className="font-bold text-white text-[10px] uppercase tracking-wider truncate" style={{ color: profileColor }}>{entry.cases?.titulo}</p>
+                              <p className="font-bold text-white text-[10px] uppercase tracking-wider truncate" style={{ color: profileColor }}>{caseTitle}</p>
                               <span className={`text-[8px] px-2 py-1 rounded-full font-black ${getTimeBillingBadge(entry.horas).color}`}>
                                 {getTimeBillingBadge(entry.horas).label}
                               </span>
@@ -373,12 +417,24 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
                 <div>
                     <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">Trabajador</label>
                     <div className="w-full py-2 px-0 bg-transparent border-b-2 border-zinc-800 text-white opacity-70">
-                        {editingEntry ? `${editingEntry.profiles?.primer_nombre} ${editingEntry.profiles?.primer_apellido}` : `${currentUserProfile?.primer_nombre} ${currentUserProfile?.primer_apellido}`}
+                        {editingEntry ? `${(editingEntry as any).perfil?.primer_nombre} ${(editingEntry as any).perfil?.primer_apellido}` : `${currentUserProfile?.primer_nombre} ${currentUserProfile?.primer_apellido}`}
                     </div>
                 </div>
                 
-                <SelectField label="Cliente" value={selectedClientId} onChange={(e: any) => setSelectedClientId(e.target.value)} options={clientProfiles} required />
-                <SelectField label="Caso" value={selectedCaseId} onChange={(e: any) => setSelectedCaseId(e.target.value)} options={filteredCases} disabled={!selectedClientId} required />
+                <CustomSelect 
+                    label="Cliente" 
+                    value={selectedClientId} 
+                    onChange={(val: string) => { setSelectedClientId(val); setSelectedCaseId(''); }} 
+                    options={clientProfiles.map(c => ({ id: c.id, label: `${c.primer_nombre || ''} ${c.primer_apellido || ''}`.trim() }))} 
+                />
+
+                <CustomSelect 
+                    label="Caso" 
+                    value={selectedCaseId} 
+                    onChange={(val: string) => setSelectedCaseId(val)} 
+                    options={filteredCases.map(c => ({ id: c.id, label: c.titulo }))} 
+                    disabled={!selectedClientId} 
+                />
                 
                 <div className="md:col-span-2">
                     <InputField label="Descripción Tarea" value={taskDescription} onChange={(e: any) => setTaskDescription(e.target.value)} required />
