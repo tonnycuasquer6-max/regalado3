@@ -1106,12 +1106,22 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente' | 'as
 
             <Modal isOpen={!!profileToEdit} onClose={() => setProfileToEdit(null)}>
                 <form onSubmit={handleUpdateProfile} className="p-8">
-                    <h2 className="text-xl font-bold mb-8 italic tracking-widest uppercase text-white">Editar Perfil</h2>
+                    <h2 className="text-xl font-bold mb-6 italic tracking-widest uppercase text-white">Editar Perfil</h2>
+                    
+                    <div className="bg-red-950/30 border border-red-900/50 p-4 mb-6 rounded-xl">
+                        <p className="text-red-400 text-[10px] uppercase tracking-widest font-bold">Nota de Seguridad:</p>
+                        <p className="text-zinc-400 text-xs mt-1">El email de inicio de sesión no se puede modificar desde aquí. Debe hacerse desde la consola central de Supabase.</p>
+                    </div>
+
                     <div className="grid grid-cols-2 gap-6">
                         <InputField label="Nombre" value={editFormData.primer_nombre || ''} onChange={(e: any) => setEditFormData({...editFormData, primer_nombre: e.target.value})} />
                         <InputField label="Apellido" value={editFormData.primer_apellido || ''} onChange={(e: any) => setEditFormData({...editFormData, primer_apellido: e.target.value})} />
                         <InputField label="Cédula" value={editFormData.cedula || ''} onChange={(e: any) => setEditFormData({...editFormData, cedula: e.target.value})} />
-                        <InputField label="Email" value={editFormData.email || ''} onChange={(e: any) => setEditFormData({...editFormData, email: e.target.value})} />
+                        
+                        {/* EL EMAIL AHORA ESTÁ DESHABILITADO Y OPACO */}
+                        <div className="opacity-50 pointer-events-none">
+                            <InputField label="Email (Bloqueado)" value={editFormData.email || ''} onChange={() => {}} />
+                        </div>
                         
                         {(role === 'abogado' || role === 'estudiante' || role === 'asociado') && (
                             <div className="col-span-2 pt-6 border-t border-zinc-900 mt-2">
@@ -1140,9 +1150,9 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente' | 'as
                             </div>
                         )}
                     </div>
-                    <div className="mt-8 flex justify-end gap-4">
-                        <button type="button" onClick={() => setProfileToEdit(null)} className="py-2 px-6 text-zinc-400 hover:text-white transition-colors">Cancelar</button>
-                        <button type="submit" disabled={actionLoading} className="bg-white text-black font-bold py-2 px-6 hover:bg-zinc-200 transition-colors disabled:opacity-50">Guardar</button>
+                    <div className="mt-8 flex justify-end gap-4 border-t border-zinc-900 pt-6">
+                        <button type="button" onClick={() => setProfileToEdit(null)} className="py-2 px-6 text-zinc-400 hover:text-white transition-colors text-[10px] uppercase tracking-widest font-bold">Cancelar</button>
+                        <button type="submit" disabled={actionLoading} className="bg-white text-black font-bold py-2 px-6 rounded-xl hover:bg-zinc-200 transition-colors disabled:opacity-50 text-[10px] uppercase tracking-widest">Guardar Cambios</button>
                     </div>
                 </form>
             </Modal>

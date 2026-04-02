@@ -373,7 +373,6 @@ const ClientCasesView: React.FC<{ session: Session }> = ({ session }) => {
                 )}
             </Modal>
 
-            {/* MODAL DE PAGOS */}
             <Modal isOpen={!!payMode} onClose={() => { setPayMode(null); setSelectedUpdateForPay(null); setAbonarCase(null); setCustomAmount(''); setPayAmount(''); }}>
                 <div className="p-8 flex flex-col max-h-[85vh]">
                     <div className="mb-6 border-b border-white/10 pb-4">
@@ -468,44 +467,6 @@ const ClientCasesView: React.FC<{ session: Session }> = ({ session }) => {
                     </div>
                 </div>
             </Modal>
-        </div>
-    );
-};
-
-// ==========================================
-// VISTA: MÉTODOS DE PAGO
-// ==========================================
-const ClientPaymentsView: React.FC = () => {
-    const banks = [
-        { id: 1, name: 'Banco del Pichincha', bg: 'bg-[#facc15]', text: 'text-black', logo: '🏦' },
-        { id: 2, name: 'Banco del Pacífico', bg: 'bg-[#0ea5e9]', text: 'text-white', logo: '🌊' },
-        { id: 3, name: 'Banco de Guayaquil', bg: 'bg-[#db2777]', text: 'text-white', logo: '🏛️' }
-    ];
-
-    return (
-        <div className="animate-in fade-in duration-500 font-mono w-full max-w-5xl mx-auto">
-            <h2 className="text-2xl font-black uppercase tracking-widest mb-8 border-b border-zinc-900 pb-4 text-center md:text-left">Cuentas Autorizadas</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                {banks.map(bank => (
-                    <div key={bank.id} className="bg-black/60 backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden shadow-2xl flex flex-col transform hover:scale-105 transition-transform duration-300">
-                        <div className={`${bank.bg} ${bank.text} p-6 flex flex-col items-center justify-center text-center h-32`}>
-                            <span className="text-4xl mb-2">{bank.logo}</span>
-                            <h3 className="font-black uppercase tracking-widest text-sm">{bank.name}</h3>
-                        </div>
-                        <div className="p-6 bg-transparent flex-grow flex flex-col justify-center">
-                            <div className="mb-4">
-                                <p className="text-[10px] text-zinc-500 uppercase tracking-[0.2em] font-bold mb-1">PROPIETARIO</p>
-                                <p className="text-sm font-bold text-white uppercase tracking-widest">REGALADO Y REGALADO</p>
-                            </div>
-                            <div>
-                                <p className="text-[10px] text-zinc-500 uppercase tracking-[0.2em] font-bold mb-1">NÚMERO DE CUENTA</p>
-                                <p className="text-xl font-mono font-black text-green-400 tracking-[0.2em]">1111111111</p>
-                            </div>
-                        </div>
-                    </div>
-                ))}
-            </div>
-            <p className="text-center text-zinc-500 text-xs mt-12 tracking-widest uppercase">Puede registrar sus pagos y pagar con tarjeta directamente desde la línea de tiempo de cada caso en "Mis Casos".</p>
         </div>
     );
 };
@@ -746,7 +707,6 @@ const ClientDashboard: React.FC<{ session: Session }> = ({ session }) => {
 
     const [showPasswordModal, setShowPasswordModal] = useState(false);
     const [newPassword, setNewPassword] = useState('');
-    const [confirmPassword, setConfirmPassword] = useState('');
     const [passLoading, setPassLoading] = useState(false);
 
     const lenCheck = newPassword.length >= 8 && newPassword.length <= 20;
@@ -755,7 +715,6 @@ const ClientDashboard: React.FC<{ session: Session }> = ({ session }) => {
     const numCheck = /\d/.test(newPassword);
     const specCheck = /[!@#$%^&*(),.?":{}|<>]/.test(newPassword);
     const isPasswordValid = lenCheck && upperCheck && lowerCheck && numCheck && specCheck;
-    const passwordsMatch = newPassword === confirmPassword;
 
     const checkInitialData = useCallback(async () => {
         const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
@@ -806,7 +765,7 @@ const ClientDashboard: React.FC<{ session: Session }> = ({ session }) => {
 
     const handleUpdatePassword = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!isPasswordValid || !passwordsMatch) return;
+        if (!isPasswordValid) return;
         setPassLoading(true);
         try {
             const { error } = await supabase.auth.updateUser({ password: newPassword });
@@ -988,9 +947,6 @@ const ClientDashboard: React.FC<{ session: Session }> = ({ session }) => {
                         <div className={`${activeView === 'CASES' && !profileIncomplete ? 'flex-grow flex flex-col h-full' : 'hidden'}`}>
                             <ClientCasesView session={session} />
                         </div>
-                        <div className={`${activeView === 'PAYMENTS' && !profileIncomplete ? 'flex-grow flex flex-col h-full' : 'hidden'}`}>
-                            <ClientPaymentsView />
-                        </div>
                         <div className={`${activeView === 'CHAT' && !profileIncomplete ? 'flex-grow flex flex-col h-full' : 'hidden'}`}>
                             <ClientChatView session={session} />
                         </div>
@@ -1014,7 +970,7 @@ const ClientDashboard: React.FC<{ session: Session }> = ({ session }) => {
                                 )}
                                 <div className="bg-black/60 backdrop-blur-xl border border-white/10 shadow-2xl rounded-2xl p-8 text-center animate-in fade-in duration-500">
                                     <h2 className="text-2xl font-black uppercase tracking-widest mb-4">Estado de Cuenta Mensual</h2>
-                                    <p className="text-zinc-500 text-sm tracking-widest uppercase">Próximamente disponible un resumen detallado de tus facturas.</p>
+                                    <p className="text-zinc-500 text-sm tracking-widest uppercase">Próximamente disponible un resumen detallado de tus facturas y abonos globales.</p>
                                 </div>
                             </div>
                         </div>
