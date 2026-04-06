@@ -1,23 +1,6 @@
 import React, { useState, useEffect, useCallback, Fragment } from 'react';
-import { createPortal } from 'react-dom';
 import { supabase } from '../../services/supabaseClient';
 import { Case, TimeEntry, Profile } from '../../types';
-
-// --- HOOK DE MEMORIA CACHÉ ---
-function useSessionState<T>(key: string, initialValue: T): [T, React.Dispatch<React.SetStateAction<T>>] {
-    const [state, setState] = useState<T>(() => {
-        try {
-            const item = sessionStorage.getItem(key);
-            return item ? JSON.parse(item) : initialValue;
-        } catch (error) {
-            return initialValue;
-        }
-    });
-    useEffect(() => {
-        sessionStorage.setItem(key, JSON.stringify(state));
-    }, [key, state]);
-    return [state, setState];
-}
 
 const getStartOfWeek = (date: Date) => {
   const d = new Date(date);
@@ -40,75 +23,41 @@ const TrashIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" view
 const InputField: React.FC<any> = ({ label, type = 'text', ...props }) => (
     <div>
         <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">{label}</label>
-        <input type={type} className="w-full py-2 px-0 bg-transparent border-b-2 border-zinc-800 text-white focus:outline-none focus:border-zinc-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" {...props} />
+        <input type={type} className="w-full py-2 px-0 bg-transparent border-b-2 border-zinc-800 text-white focus:outline-none focus:border-zinc-500 transition-colors" {...props} />
     </div>
 );
 
-// --- COMPONENTE SELECTOR CUSTOMIZADO ---
-const CustomSelect: React.FC<{ label: string; value: string; onChange: (val: string) => void; options: {id: string, label: string}[], disabled?: boolean }> = ({ label, value, onChange, options, disabled }) => {
-    const [isOpen, setIsOpen] = useState(false);
-    const selectedOpt = options.find(o => o.id === value);
+const SelectField: React.FC<any> = ({ label, options, ...props }) => (
+     <div>
+        <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">{label}</label>
+        <select className="w-full py-2 px-0 bg-transparent border-b-2 border-zinc-800 text-white focus:outline-none focus:border-zinc-500 transition-colors disabled:opacity-50" {...props}>
+            <option value="" className="bg-black">Seleccionar...</option>
+            {options.map((opt: any) => (
+                <option key={opt.id} value={opt.id} className="bg-black">{opt.titulo || `${opt.primer_nombre || ''} ${opt.primer_apellido || ''}`.trim()}</option>
+            ))}
+        </select>
+    </div>
+);
 
-    return (
-        <div className={`relative ${disabled ? 'opacity-50 pointer-events-none' : ''}`}>
-            <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">{label}</label>
-            <div 
-                onClick={() => !disabled && setIsOpen(!isOpen)}
-                className="w-full py-2 px-0 bg-transparent border-b-2 border-zinc-800 text-white uppercase tracking-widest text-[11px] font-bold cursor-pointer flex justify-between items-center transition-all focus-within:border-zinc-500"
-            >
-                <span className="truncate pr-4 text-zinc-300">
-                    {selectedOpt ? selectedOpt.label : 'Seleccionar...'}
-                </span>
-                <svg className={`fill-current h-4 w-4 text-zinc-500 transition-transform duration-300 flex-shrink-0 ${isOpen ? 'rotate-180' : ''}`} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
-            </div>
-            
-            {isOpen && (
-                <>
-                    <div className="fixed inset-0 z-[10000]" onClick={() => setIsOpen(false)}></div>
-                    <div className="absolute top-full left-0 w-full mt-2 bg-black border border-zinc-800 shadow-2xl z-[10001] flex flex-col max-h-48 overflow-y-auto animate-in fade-in slide-in-from-top-2 duration-200 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-                        <button
-                            type="button"
-                            onClick={() => { onChange(''); setIsOpen(false); }}
-                            className={`p-4 text-left text-[10px] uppercase tracking-widest font-bold transition-colors ${!value ? 'bg-zinc-900 text-white border-l-2 border-white' : 'text-zinc-500 hover:text-white hover:bg-zinc-900 border-l-2 border-transparent'}`}
-                        >
-                            Seleccionar...
-                        </button>
-                        {options.map(opt => (
-                            <button
-                                key={opt.id}
-                                type="button"
-                                onClick={() => { onChange(opt.id); setIsOpen(false); }}
-                                className={`p-4 text-left text-[10px] uppercase tracking-widest font-bold transition-colors ${value === opt.id ? 'bg-zinc-900 text-white border-l-2 border-white' : 'text-zinc-500 hover:text-white hover:bg-zinc-900 border-l-2 border-transparent'}`}
-                            >
-                                {opt.label}
-                            </button>
-                        ))}
-                    </div>
-                </>
-            )}
-        </div>
-    );
-};
-
-const NumberControl: React.FC<any> = ({ label, value, step, min, onChange, isTime = false, isMoney = false, prefix = '', disabled = false }) => {
-    const handleDecrease = () => { if (disabled) return; let newVal = value - step; if (newVal < min) newVal = min; onChange(Math.round(newVal * 10000) / 10000); };
-    const handleIncrease = () => { if (disabled) return; let newVal = value + step; onChange(Math.round(newVal * 10000) / 10000); };
+const NumberControl: React.FC<any> = ({ label, value, step, min, onChange, isTime = false, isMoney = false, prefix = '' }) => {
+    const handleDecrease = () => { let newVal = value - step; if (newVal < min) newVal = min; onChange(Math.round(newVal * 10000) / 10000); };
+    const handleIncrease = () => { let newVal = value + step; onChange(Math.round(newVal * 10000) / 10000); };
     const formatTime = (decimalHours: number) => { const totalMinutes = Math.round(decimalHours * 60); const h = Math.floor(totalMinutes / 60); const m = totalMinutes % 60; return `${h}h ${m}m`; };
 
     const textColor = isMoney ? 'text-green-400' : 'text-white';
     const borderColor = isMoney ? 'border-green-900/50 focus-within:border-green-500' : 'border-zinc-800 focus-within:border-zinc-500';
 
     return (
-        <div className={disabled ? 'opacity-50 pointer-events-none' : ''}>
+        <div>
             <label className={`block text-[10px] font-black mb-2 uppercase tracking-[0.3em] ${isMoney ? 'text-green-700' : 'text-zinc-500'}`}>{label}</label>
             <div className={`flex items-center bg-transparent border-b-2 transition-colors group pb-1 ${borderColor}`}>
                 <div className={`flex-grow flex justify-start items-center font-mono text-xl ${textColor}`}>
                     {prefix && <span className="mr-1 opacity-70">{prefix}</span>}
-                    <input type="number" value={value === 0 ? '' : value} onChange={(e) => onChange(e.target.value ? parseFloat(e.target.value) : 0)} disabled={disabled} className="w-full bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" step="any" min={min} />
+                    <input type="number" value={value === 0 ? '' : value} onChange={(e) => onChange(e.target.value ? parseFloat(e.target.value) : 0)} className="w-full bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" step="any" min={min} />
                 </div>
                 <div className="flex flex-col ml-2 justify-center">
-                    <button type="button" onClick={handleIncrease} disabled={disabled} className={`hover:text-white transition-colors flex items-center justify-center p-0.5 ${isMoney ? 'text-green-700 hover:text-green-400' : 'text-zinc-600'}`}><ChevronUpIcon /></button>
-                    <button type="button" onClick={handleDecrease} disabled={disabled} className={`hover:text-white transition-colors flex items-center justify-center p-0.5 mt-0.5 ${isMoney ? 'text-green-700 hover:text-green-400' : 'text-zinc-600'}`}><ChevronDownIcon /></button>
+                    <button type="button" onClick={handleIncrease} className={`hover:text-white transition-colors flex items-center justify-center p-0.5 ${isMoney ? 'text-green-700 hover:text-green-400' : 'text-zinc-600'}`}><ChevronUpIcon /></button>
+                    <button type="button" onClick={handleDecrease} className={`hover:text-white transition-colors flex items-center justify-center p-0.5 mt-0.5 ${isMoney ? 'text-green-700 hover:text-green-400' : 'text-zinc-600'}`}><ChevronDownIcon /></button>
                 </div>
             </div>
             {isTime && ( <div className="text-xs text-zinc-500 font-mono mt-3 text-left uppercase tracking-widest">equivale a: <span className="text-zinc-300 font-bold ml-1">{formatTime(value)}</span></div> )}
@@ -118,13 +67,12 @@ const NumberControl: React.FC<any> = ({ label, value, step, min, onChange, isTim
 
 const Modal: React.FC<{ isOpen: boolean; onClose: () => void; children: React.ReactNode }> = ({ isOpen, onClose, children }) => {
     if (!isOpen) return null;
-    return createPortal(
-      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[999999] flex items-center justify-center p-4 font-mono">
-        <div className="bg-black/80 backdrop-blur-xl border border-white/10 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] rounded-2xl relative">
+    return (
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 font-mono">
+        <div className="bg-black/80 backdrop-blur-xl border border-white/10 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] rounded-2xl">
           {children}
         </div>
-      </div>,
-      document.body
+      </div>
     );
 };
 
@@ -151,7 +99,7 @@ const calculateLayout = (entries: TimeEntry[]) => {
 
 const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [timeEntries, setTimeEntries] = useState<any[]>([]);
+  const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
   const [cases, setCases] = useState<Case[]>([]);
   const [clientProfiles, setClientProfiles] = useState<Profile[]>([]);
   const [currentUserProfile, setCurrentUserProfile] = useState<Profile | null>(null);
@@ -159,16 +107,20 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
   const [actionLoading, setActionLoading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   
-  // --- MEMORIA CACHÉ ---
-  const [isModalOpen, setIsModalOpen] = useSessionState('tb_maestro_modalOpen', false);
-  const [selectedSlot, setSelectedSlot] = useSessionState<{ date: string; hour: number } | null>('tb_maestro_slot', null);
-  const [editingEntry, setEditingEntry] = useSessionState<any | null>('tb_maestro_editEntry', null);
-  const [selectedClientId, setSelectedClientId] = useSessionState<string>('tb_maestro_client', '');
-  const [selectedCaseId, setSelectedCaseId] = useSessionState<string>('tb_maestro_case', '');
-  const [taskDescription, setTaskDescription] = useSessionState('tb_maestro_desc', '');
-  const [hoursWorked, setHoursWorked] = useSessionState<number>('tb_maestro_hours', 1);
-  const [rate, setRate] = useSessionState<number>('tb_maestro_rate', 0);
-  const [pagoStatus, setPagoStatus] = useSessionState<'cobrado' | 'por_cobrar'>('tb_maestro_pago', 'por_cobrar');
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedSlot, setSelectedSlot] = useState<{ date: string; hour: number } | null>(null);
+  const [editingEntry, setEditingEntry] = useState<TimeEntry | null>(null);
+  
+  const [selectedClientId, setSelectedClientId] = useState<string>('');
+  const [selectedCaseId, setSelectedCaseId] = useState<string>('');
+  const [taskDescription, setTaskDescription] = useState('');
+  const [hoursWorked, setHoursWorked] = useState<number>(1);
+  const [rate, setRate] = useState<number>(0);
+  const [billingMode, setBillingMode] = useState<'descripcion' | 'costos_fijos'>('descripcion');
+  const [fixedCostOption, setFixedCostOption] = useState<number | null>(null);
+  const [fixedCostSearch, setFixedCostSearch] = useState('');
+  const fixedCostOptions = Array.from({ length: 50 }, (_, i) => i + 1);
+  const [pagoStatus, setPagoStatus] = useState<'cobrado' | 'por_cobrar'>('por_cobrar');
   
   const isUserAdmin = currentUserProfile?.rol === 'admin';
 
@@ -193,14 +145,8 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
     if (!profile) return;
     const startOfWeek = getStartOfWeek(currentDate);
     const endOfWeek = new Date(startOfWeek); endOfWeek.setDate(startOfWeek.getDate() + 6);
-    
-    let query = supabase.from('time_entries')
-        .select('*, perfil:profiles!perfil_id(primer_nombre, primer_apellido, rol, color_perfil), caso:cases!caso_id(titulo, cliente_id)')
-        .gte('fecha_tarea', toYYYYMMDD(startOfWeek))
-        .lte('fecha_tarea', toYYYYMMDD(endOfWeek));
-        
+    let query = supabase.from('time_entries').select('*, profiles(primer_nombre, primer_apellido, rol, color_perfil), cases(titulo, cliente_id)').gte('fecha_tarea', toYYYYMMDD(startOfWeek)).lte('fecha_tarea', toYYYYMMDD(endOfWeek));
     if (profile.rol !== 'admin') query = query.eq('perfil_id', profile.id);
-    
     const { data } = await query;
     setTimeEntries(data || []);
   }, [currentDate]);
@@ -209,36 +155,27 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
 
   const changeWeek = (direction: 'prev' | 'next') => { setCurrentDate(prev => { const newDate = new Date(prev); newDate.setDate(prev.getDate() + (direction === 'prev' ? -7 : 7)); return newDate; }); };
 
-  const closeAndClearModal = () => {
-    setIsModalOpen(false);
-    setEditingEntry(null);
-    setSelectedSlot(null);
-    setSelectedClientId('');
-    setSelectedCaseId('');
-    setTaskDescription('');
-    setHoursWorked(1);
-    setRate(0);
-    setPagoStatus('por_cobrar');
-  };
-
   const openNewEntryModal = (date: string, hour: number) => {
     setEditingEntry(null); setSelectedSlot({ date, hour }); setSelectedClientId(''); setSelectedCaseId(''); setTaskDescription(''); setHoursWorked(1); setRate(0); setPagoStatus('por_cobrar'); setIsModalOpen(true);
+    setBillingMode('descripcion'); setFixedCostOption(null); setFixedCostSearch('');
   };
 
   const openEditEntryModal = (entry: any) => {
-    setEditingEntry(entry); setSelectedSlot({ date: entry.fecha_tarea, hour: parseInt(entry.hora_inicio.split(':')[0]) }); setSelectedClientId(entry.caso?.cliente_id || ''); setSelectedCaseId(entry.caso_id); setTaskDescription(entry.descripcion_tarea); setHoursWorked(entry.horas); setRate(entry.tarifa_personalizada || 0); setPagoStatus(entry.estado || 'por_cobrar'); setIsModalOpen(true);
+    setEditingEntry(entry); setSelectedSlot({ date: entry.fecha_tarea, hour: parseInt(entry.hora_inicio.split(':')[0]) }); setSelectedClientId(entry.cases?.cliente_id || ''); setSelectedCaseId(entry.caso_id); setTaskDescription(entry.descripcion_tarea); setHoursWorked(entry.horas); setRate(entry.tarifa_personalizada || 0); setPagoStatus(entry.estado || 'por_cobrar'); setIsModalOpen(true);
+    setBillingMode('descripcion'); setFixedCostOption(null); setFixedCostSearch('');
   };
 
   const handleSaveEntry = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedSlot || !selectedCaseId || !taskDescription || hoursWorked <= 0 || !currentUserProfile) return;
+    const finalDescription = billingMode === 'costos_fijos' ? `Costo fijo #${fixedCostOption || '1'}` : taskDescription;
+    if (!selectedSlot || !selectedCaseId || !finalDescription || hoursWorked <= 0 || !currentUserProfile) return;
     setActionLoading(true);
     
     const entryData = {
       id: editingEntry?.id,
       perfil_id: editingEntry ? editingEntry.perfil_id : currentUserProfile.id,
       caso_id: selectedCaseId,
-      descripcion_tarea: taskDescription,
+      descripcion_tarea: finalDescription,
       fecha_tarea: selectedSlot.date,
       hora_inicio: `${String(selectedSlot.hour).padStart(2, '0')}:00:00`,
       horas: hoursWorked,
@@ -250,7 +187,7 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
     try {
       const { error } = await supabase.from('time_entries').upsert(entryData);
       if (error) throw error;
-      closeAndClearModal();
+      setIsModalOpen(false);
       await fetchWeekEntries(currentUserProfile);
     } catch (error: any) { alert(`Error al guardar: ${error.message}`); } finally { setActionLoading(false); }
   };
@@ -267,14 +204,16 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
             try {
                 const { error } = await supabase.from('time_entries').delete().eq('id', idToDelete);
                 if (error) throw error;
-                closeAndClearModal();
+                setIsModalOpen(false);
+                setEditingEntry(null);
                 await fetchWeekEntries(currentUserProfile);
             } catch (error: any) { alert(`Error: ${error.message}`); } finally { setActionLoading(false); }
         }
     });
   };
 
-  const handleDragStart = (e: React.DragEvent, entry: any) => {
+  // --- LÓGICA DE DRAG & DROP ---
+  const handleDragStart = (e: React.DragEvent, entry: TimeEntry) => {
       if (!isUserAdmin) {
         e.preventDefault();
         alert('Solo administrador puede arrastrar entradas.');
@@ -305,6 +244,14 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
     }
   };
 
+  const getTimeBillingBadge = (hours: number) => {
+    if (hours >= 1.5) return { label: '100%', color: 'bg-green-600' };
+    if (hours >= 1.0) return { label: '75%', color: 'bg-yellow-500 text-black' };
+    if (hours >= 0.75) return { label: '50%', color: 'bg-orange-500 text-black' };
+    return { label: '25%', color: 'bg-red-500' };
+  };
+
+  // --- SUGERENCIAS ---
   const selectedCaseObj = cases.find(c => c.id === selectedCaseId);
   const presetRateMatch = selectedCaseObj?.descripcion.match(/Precio:\s*\$([\d.]+)/);
   const suggestedRate = presetRateMatch ? parseFloat(presetRateMatch[1]) : null;
@@ -369,9 +316,7 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
                         const top = (entryHour - 6) * 60;
                         const height = entry.horas * 60;
                         const { width, left } = layout[entry.id];
-                        
-                        const profileColor = entry.perfil?.color_perfil || '#3b82f6';
-                        const caseTitle = entry.caso?.titulo || 'Caso Desconocido';
+                        const profileColor = entry.profiles?.color_perfil || '#3b82f6';
 
                         return (
                           <div key={entry.id} 
@@ -382,13 +327,13 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
                                style={{ top: `${top}px`, height: `${height}px`, left: `calc(${left} + 2px)`, width: `calc(${width} - 4px)`, borderLeft: `4px solid ${profileColor}` }} 
                                onClick={(e) => { e.stopPropagation(); openEditEntryModal(entry); }}>
                             <div className="flex items-center justify-between gap-2 mb-1">
-                              <p className="font-bold text-white text-[10px] uppercase tracking-wider truncate" style={{ color: profileColor }}>{caseTitle}</p>
+                              <p className="font-bold text-white text-[10px] uppercase tracking-wider truncate" style={{ color: profileColor }}>{entry.cases?.titulo}</p>
+                              <span className={`text-[8px] px-2 py-1 rounded-full font-black ${getTimeBillingBadge(entry.horas).color}`}>
+                                {getTimeBillingBadge(entry.horas).label}
+                              </span>
                             </div>
                             <p className="text-zinc-300 text-[9px] leading-tight line-clamp-2">{entry.descripcion_tarea}</p>
-                            
-                            {/* --- ESTADO EN ESPERA VS COBRADO --- */}
-                            {entry.estado === 'cobrado' && entry.estado_pago_contador === 'aprobado' && <span className="mt-1 text-[8px] text-green-400 font-black tracking-widest uppercase">COBRADO</span>}
-                            {entry.estado === 'cobrado' && entry.estado_pago_contador !== 'aprobado' && <span className="mt-1 text-[8px] text-yellow-500 font-black tracking-widest uppercase">EN ESPERA</span>}
+                            {entry.estado === 'cobrado' && <span className="mt-1 text-[8px] text-green-400 font-black tracking-widest uppercase">COBRADO</span>}
                           </div>
                         )
                       })}
@@ -400,7 +345,7 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
         </div>
       </div>
 
-      <Modal isOpen={isModalOpen && !!selectedSlot} onClose={closeAndClearModal}>
+      <Modal isOpen={isModalOpen && !!selectedSlot} onClose={() => setIsModalOpen(false)}>
         <form onSubmit={handleSaveEntry} className="p-8 overflow-y-auto max-h-[85vh]">
             <h2 className="text-xl font-bold text-white mb-8 italic tracking-widest">{editingEntry ? 'EDITAR' : 'REGISTRAR'} TAREA</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
@@ -408,27 +353,67 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
                 <div>
                     <label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">Trabajador</label>
                     <div className="w-full py-2 px-0 bg-transparent border-b-2 border-zinc-800 text-white opacity-70">
-                        {editingEntry ? `${editingEntry.perfil?.primer_nombre} ${editingEntry.perfil?.primer_apellido}` : `${currentUserProfile?.primer_nombre} ${currentUserProfile?.primer_apellido}`}
+                        {editingEntry ? `${editingEntry.profiles?.primer_nombre} ${editingEntry.profiles?.primer_apellido}` : `${currentUserProfile?.primer_nombre} ${currentUserProfile?.primer_apellido}`}
                     </div>
                 </div>
                 
-                <CustomSelect 
-                    label="Cliente" 
-                    value={selectedClientId} 
-                    onChange={(val: string) => { setSelectedClientId(val); setSelectedCaseId(''); }} 
-                    options={clientProfiles.map(c => ({ id: c.id, label: `${c.primer_nombre || ''} ${c.primer_apellido || ''}`.trim() }))} 
-                />
-
-                <CustomSelect 
-                    label="Caso" 
-                    value={selectedCaseId} 
-                    onChange={(val: string) => setSelectedCaseId(val)} 
-                    options={filteredCases.map(c => ({ id: c.id, label: c.titulo }))} 
-                    disabled={!selectedClientId} 
-                />
+                <SelectField label="Cliente" value={selectedClientId} onChange={(e: any) => setSelectedClientId(e.target.value)} options={clientProfiles} required />
+                <SelectField label="Caso" value={selectedCaseId} onChange={(e: any) => setSelectedCaseId(e.target.value)} options={filteredCases} disabled={!selectedClientId} required />
                 
                 <div className="md:col-span-2">
-                    <InputField label="Descripción Tarea" value={taskDescription} onChange={(e: any) => setTaskDescription(e.target.value)} required />
+                    <div className="mb-4 p-3 border border-white/10 rounded-xl bg-black/40 backdrop-blur-md text-xs text-zinc-400">
+                      Ejemplo de presupuesto express: 50 x 2 (10.000 km) = neto $4,500.
+                      <button type="button" onClick={() => {
+                        setBillingMode('costos_fijos');
+                        setFixedCostOption(50);
+                        setHoursWorked(2);
+                        setRate(2250);
+                        setTaskDescription('Tiempo extra por kilometraje 10.000');
+                      }} className="ml-2 text-blue-400 hover:text-blue-300">usar ejemplo</button>
+                    </div>
+                    <div className="flex gap-2 mb-4">
+                      <button type="button" onClick={() => setBillingMode('descripcion')} className={`px-4 py-2 rounded-xl transition-all ${billingMode === 'descripcion' ? 'bg-blue-600/80 backdrop-blur-md text-white shadow-lg' : 'bg-white/5 text-zinc-400 hover:text-white hover:bg-white/10'}`}>
+                        DESCRIPCIÓN
+                      </button>
+                      <button type="button" onClick={() => setBillingMode('costos_fijos')} className={`px-4 py-2 rounded-xl transition-all ${billingMode === 'costos_fijos' ? 'bg-blue-600/80 backdrop-blur-md text-white shadow-lg' : 'bg-white/5 text-zinc-400 hover:text-white hover:bg-white/10'}`}>
+                        COSTOS FIJOS
+                      </button>
+                    </div>
+
+                    {billingMode === 'costos_fijos' ? (
+                      <div className="space-y-3">
+                        <input
+                          type="text"
+                          value={fixedCostSearch}
+                          onChange={(e) => setFixedCostSearch(e.target.value)}
+                          placeholder="Buscar costo fijo..."
+                          className="w-full bg-transparent border-b-2 border-zinc-800 text-white py-2 px-1 focus:outline-none focus:border-zinc-500 transition-colors"
+                        />
+                        <select
+                          value={fixedCostOption || ''}
+                          onChange={(e) => {
+                            const selected = Number(e.target.value);
+                            const baseHours = 0.5 + selected * 0.1;
+                            const baseRate = 30 + selected * 1.5;
+                            setFixedCostOption(selected);
+                            setHoursWorked(Math.round(baseHours * 100) / 100);
+                            setRate(Math.round((baseRate + (Math.random() * 20 - 10)) * 100) / 100);
+                            setTaskDescription(`Costo fijo #${selected}`);
+                          }}
+                          className="w-full bg-black/80 border border-white/10 text-white py-3 px-4 rounded-xl focus:outline-none focus:border-white/30 transition-colors shadow-inner"
+                          required
+                        >
+                          <option value="">Selecciona costo fijo...</option>
+                          {fixedCostOptions
+                            .filter((opt) => opt.toString().includes(fixedCostSearch))
+                            .map((opt) => (
+                              <option key={opt} value={opt}>Costo fijo {opt}</option>
+                            ))}
+                        </select>
+                      </div>
+                    ) : (
+                      <InputField label="Descripción Tarea" value={taskDescription} onChange={(e: any) => setTaskDescription(e.target.value)} required />
+                    )}
                 </div>
 
                 <div>
@@ -471,7 +456,7 @@ const TimeBillingMaestro: React.FC<{ onCancel?: () => void }> = ({ onCancel }) =
                     )}
                 </div>
                 <div className="flex gap-4">
-                    <button type="button" onClick={closeAndClearModal} className="font-bold py-2 px-6 text-zinc-400 hover:text-white transition-colors uppercase text-[10px] tracking-widest border border-white/10 hover:bg-white/5 rounded-xl">Cancelar</button>
+                    <button type="button" onClick={() => setIsModalOpen(false)} className="font-bold py-2 px-6 text-zinc-400 hover:text-white transition-colors uppercase text-[10px] tracking-widest border border-white/10 hover:bg-white/5 rounded-xl">Cancelar</button>
                     <button type="submit" disabled={actionLoading} className="bg-blue-600/80 hover:bg-blue-500 backdrop-blur-md shadow-lg text-white font-bold py-2 px-6 transition-colors uppercase tracking-widest text-[10px] disabled:opacity-50 rounded-xl">
                         {actionLoading ? '...' : (editingEntry ? 'GUARDAR CAMBIOS' : 'REGISTRAR TAREA')}
                     </button>

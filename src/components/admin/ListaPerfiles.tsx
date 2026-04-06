@@ -1,41 +1,21 @@
-import React, { useState, useEffect, useCallback, useRef, Fragment } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useState, useEffect, useCallback, Fragment, useRef } from 'react';
 import { supabase } from '../../services/supabaseClient';
 import { PencilIcon, TrashIcon, SearchIcon } from '../shared/Icons';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 
-// --- HOOK DE MEMORIA CACHÉ ---
-function useSessionState<T>(key: string, initialValue: T): [T, React.Dispatch<React.SetStateAction<T>>] {
-    const [state, setState] = useState<T>(() => {
-        try {
-            const item = sessionStorage.getItem(key);
-            return item ? JSON.parse(item) : initialValue;
-        } catch (error) {
-            return initialValue;
-        }
-    });
-    useEffect(() => {
-        sessionStorage.setItem(key, JSON.stringify(state));
-    }, [key, state]);
-    return [state, setState];
-}
-
-// --- ICONOS ---
 const PlusCircleIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 pointer-events-none"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v6m3-3H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
 const EyeIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 pointer-events-none"><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>;
+const PaperClipIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 pointer-events-none"><path strokeLinecap="round" strokeLinejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" /></svg>;
 const DocumentIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 inline-block mr-1 pointer-events-none"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>;
 const DocumentAssignIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 pointer-events-none"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v6m3-3H9" /></svg>;
 const CheckIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-5 h-5 pointer-events-none"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>;
 const XMarkIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-5 h-5 pointer-events-none"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>;
 const ShieldIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 pointer-events-none"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" /></svg>;
-const ChevronUpIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" /></svg>;
-const ChevronDownIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>;
-const PaperClipIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 pointer-events-none"><path strokeLinecap="round" strokeLinejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" /></svg>;
 
 const scrollbarStyle = "overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-zinc-800 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-zinc-700 transition-colors";
 
-interface Profile { id: string; primer_nombre: string; primer_apellido: string; cedula: string; email: string; foto_url: string | null; rol: string; categoria_usuario: 'abogado' | 'estudiante' | 'cliente' | 'asociado'; estado_aprobacion: string; color_perfil?: string; }
+interface Profile { id: string; primer_nombre: string; primer_apellido: string; cedula: string; email: string; foto_url: string | null; rol: string; categoria_usuario: 'abogado' | 'estudiante' | 'cliente'; estado_aprobacion: string; color_perfil?: string; }
 interface Case { id: string; created_at: string; titulo: string; descripcion: string; estado: string; cliente_id: string; }
 interface CaseUpdate { id: string; created_at: string; descripcion: string; file_url: string | null; file_name: string | null; estado_aprobacion: string; observacion: string | null; }
 
@@ -43,36 +23,14 @@ const PROFILE_COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '
 
 const Modal: React.FC<{ isOpen: boolean; onClose: () => void; children: React.ReactNode }> = ({ isOpen, onClose, children }) => {
     if (!isOpen) return null;
-    return createPortal(<div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 font-mono"><div className="bg-black/80 backdrop-blur-xl border border-white/10 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] rounded-2xl relative">{children}</div></div>, document.body);
+    return <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 font-mono"><div className="bg-black/80 backdrop-blur-xl border border-white/10 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] rounded-2xl relative">{children}</div></div>;
 };
 
 const InputField: React.FC<{ label: string, value: string, onChange: (e: any) => void, type?: string, required?: boolean }> = ({ label, value, onChange, type = 'text', required }) => (
     <div><label className="block text-zinc-500 text-[10px] font-black mb-2 uppercase tracking-[0.3em]">{label}</label><input type={type} value={value} onChange={onChange} required={required} className="w-full py-2 px-0 bg-transparent border-b-2 border-zinc-800 text-white focus:outline-none focus:border-zinc-500 transition-colors" /></div>
 );
 
-const NumberControl = ({ label, value, step, min, onChange, isMoney = false, prefix = '' }: any) => {
-    const handleDecrease = () => { let newVal = value - step; if (newVal < min) newVal = min; onChange(Math.round(newVal * 10000) / 10000); };
-    const handleIncrease = () => { let newVal = value + step; onChange(Math.round(newVal * 10000) / 10000); };
-    const textColor = isMoney ? 'text-green-400' : 'text-white';
-    const borderColor = isMoney ? 'border-green-900/50 focus-within:border-green-500' : 'border-zinc-800 focus-within:border-zinc-500';
-    return (
-        <div>
-            <label className={`block text-[10px] font-black mb-2 uppercase tracking-[0.3em] ${isMoney ? 'text-green-700' : 'text-zinc-500'}`}>{label}</label>
-            <div className={`flex items-center bg-transparent border-b-2 transition-colors group pb-1 ${borderColor}`}>
-                <div className={`flex-grow flex justify-start items-center font-mono text-xl ${textColor}`}>
-                    {prefix && <span className="mr-1 opacity-70">{prefix}</span>}
-                    <input type="number" value={value === 0 ? '' : value} onChange={(e) => onChange(e.target.value ? parseFloat(e.target.value) : 0)} className="w-full bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" step="any" min={min} />
-                </div>
-                <div className="flex flex-col ml-2 justify-center">
-                    <button type="button" onClick={handleIncrease} className={`hover:text-white transition-colors flex items-center justify-center p-0.5 ${isMoney ? 'text-green-700 hover:text-green-400' : 'text-zinc-600'}`}><ChevronUpIcon /></button>
-                    <button type="button" onClick={handleDecrease} className={`hover:text-white transition-colors flex items-center justify-center p-0.5 mt-0.5 ${isMoney ? 'text-green-700 hover:text-green-400' : 'text-zinc-600'}`}><ChevronDownIcon /></button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente' | 'asociado'; isContador?: boolean; onCancel: () => void }> = ({ role, isContador, onCancel }) => {
+const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente'; isContador?: boolean; onCancel: () => void }> = ({ role, isContador, onCancel }) => {
     const [profiles, setProfiles] = useState<Profile[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [loading, setLoading] = useState(true);
@@ -82,19 +40,13 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente' | 'as
     const [profileToEdit, setProfileToEdit] = useState<Profile | null>(null);
     const [editFormData, setEditFormData] = useState<Partial<Profile>>({});
     
-    // NUEVO CASO STATES CON MEMORIA CACHÉ
+    // NUEVO CASO STATES
     const [createCaseClient, setCreateCaseClient] = useState<Profile | null>(null);
-    const [caseType, setCaseType] = useSessionState<'custom' | 'preset' | null>('admin_case_type', null);
-    const [caseTitle, setCaseTitle] = useSessionState('admin_case_title', '');
-    const [caseDesc, setCaseDesc] = useSessionState('admin_case_desc', '');
-    const [presetSearch, setPresetSearch] = useSessionState('admin_case_search', '');
-    const [presetOption, setPresetOption] = useSessionState<number | null>('admin_case_opt', null);
-    const [isPresetDropdownOpen, setIsPresetDropdownOpen] = useState(false); 
-    
-    // VARIABLES PARA CASO PERSONALIZADO
-    const [customHours, setCustomHours] = useSessionState<number>('admin_case_hrs', 1);
-    const [customRate, setCustomRate] = useSessionState<number>('admin_case_rate', 0);
-
+    const [caseType, setCaseType] = useState<'custom' | 'preset' | null>(null);
+    const [caseTitle, setCaseTitle] = useState('');
+    const [caseDesc, setCaseDesc] = useState('');
+    const [presetSearch, setPresetSearch] = useState('');
+    const [presetOption, setPresetOption] = useState<number | null>(null);
     const fixedCostOptions = Array.from({ length: 50 }, (_, i) => i + 1);
     
     const [viewCasesClient, setViewCasesClient] = useState<Profile | null>(null);
@@ -132,6 +84,7 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente' | 'as
     const fetchProfiles = useCallback(async () => {
         setLoading(true);
         const { data } = await supabase.from('profiles').select('*').eq('categoria_usuario', role);
+        // Filtramos pendientes y eliminados para que no aparezcan
         setProfiles(data ? data.filter(p => p.estado_aprobacion !== 'pendiente' && p.estado_aprobacion !== 'eliminado') : []);
         setLoading(false);
     }, [role]);
@@ -143,7 +96,7 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente' | 'as
 
     useEffect(() => { 
         fetchProfiles(); 
-        if (role === 'abogado' || role === 'estudiante' || role === 'asociado') fetchUsedColors();
+        if (role === 'abogado' || role === 'estudiante') fetchUsedColors();
     }, [fetchProfiles, role]);
 
     const handleUpdateProfile = async (e: React.FormEvent) => { 
@@ -174,6 +127,7 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente' | 'as
                 try {
                     if (role === 'cliente') {
                         
+                        // 1. LÓGICA DE BACKUP ZIP ANTES DE BORRAR
                         try {
                             const clientFolderName = `${profileToDelete.primer_nombre}_${profileToDelete.primer_apellido}`.replace(/[^a-zA-Z0-9]/g, '_');
                             const zip = new JSZip();
@@ -205,8 +159,11 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente' | 'as
                                         }
                                     }
                                     
+                                    // Comprobar si realmente hay archivos descargados en el zip (más allá de las carpetas vacías)
                                     const zipContent = await zip.generateAsync({ type: 'blob' });
-                                    if (zipContent.size > 100) { saveAs(zipContent, `Backup_${clientFolderName}.zip`); }
+                                    if (zipContent.size > 100) { // Si pesa más de 100 bytes, asume que hay datos
+                                        saveAs(zipContent, `Backup_${clientFolderName}.zip`);
+                                    }
                                 }
                             }
                         } catch (backupError) {
@@ -214,6 +171,7 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente' | 'as
                             alert("Hubo un problema al generar el backup de archivos, pero se procederá con la eliminación del cliente.");
                         }
 
+                        // 2. ELIMINACIÓN EN CASCADA DEL CLIENTE
                         const { data: casesData } = await supabase.from('cases').select('id').eq('cliente_id', profileToDelete.id);
                         const caseIds = casesData ? casesData.map(c => c.id) : [];
 
@@ -229,20 +187,33 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente' | 'as
                         await supabase.from('cases').delete().eq('cliente_id', profileToDelete.id);
 
                     } else {
+                        // LÓGICA DE ELIMINACIÓN DE ABOGADO/ESTUDIANTE
+                        // Desvincular archivos para no romper la clave foránea en la línea de tiempo (los archivos se vuelven "anónimos")
                         await supabase.from('case_updates').update({ perfil_id: null }).eq('perfil_id', profileToDelete.id);
+                        
+                        // Eliminar asignaciones y permisos
                         await supabase.from('asignaciones_casos').delete().eq('abogado_id', profileToDelete.id);
                         await supabase.from('peticiones_acceso').delete().eq('trabajador_id', profileToDelete.id);
+                        
+                        // Eliminar Time Billing (Horas trabajadas por este abogado)
                         await supabase.from('time_entries').delete().eq('perfil_id', profileToDelete.id);
                         await supabase.from('gastos').delete().eq('perfil_id', profileToDelete.id);
                     }
 
+                    // 3. Borrado definitivo en Supabase
                     const { error } = await supabase.from('profiles').delete().eq('id', profileToDelete.id); 
                     
                     if (error) {
                         alert(`Error de Supabase al borrar: ${error.message}\nSe procederá a desactivar la cuenta en su lugar.`);
-                        await supabase.from('profiles').update({ estado_aprobacion: 'eliminado', categoria_usuario: 'eliminado', rol: 'inactivo' }).eq('id', profileToDelete.id);
+                        // Fallback Soft Delete si Supabase bloquea
+                        await supabase.from('profiles').update({ 
+                            estado_aprobacion: 'eliminado', 
+                            categoria_usuario: 'eliminado',
+                            rol: 'inactivo' 
+                        }).eq('id', profileToDelete.id);
                     }
                     
+                    // Quitamos al usuario de la lista visible de inmediato
                     setProfiles(prev => prev.filter(p => p.id !== profileToDelete.id)); 
 
                 } catch (error) {
@@ -255,25 +226,6 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente' | 'as
         });
     };
     
-    // --- CIERRE Y LIMPIEZA DE MEMORIA AL CERRAR MODAL ---
-    const handleCloseCreateModal = () => {
-        setCreateCaseClient(null);
-        setCaseType(null);
-        setPresetOption(null);
-        setCaseTitle('');
-        setCaseDesc('');
-        setCustomHours(1);
-        setCustomRate(0);
-        setPresetSearch('');
-        sessionStorage.removeItem('admin_case_type');
-        sessionStorage.removeItem('admin_case_title');
-        sessionStorage.removeItem('admin_case_desc');
-        sessionStorage.removeItem('admin_case_search');
-        sessionStorage.removeItem('admin_case_opt');
-        sessionStorage.removeItem('admin_case_hrs');
-        sessionStorage.removeItem('admin_case_rate');
-    };
-
     const handleCreateCase = async (e: React.FormEvent) => { 
         e.preventDefault(); 
         if (!createCaseClient) return; 
@@ -289,19 +241,19 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente' | 'as
             
             finalTitle = `Caso Predeterminado #${presetOption}`;
             finalDesc = `Tiempo estimado: ${hours}h\nPrecio: $${rate}`;
-        } else if (caseType === 'custom') {
-            if (!caseTitle.trim() || !caseDesc.trim()) {
-                alert('Por favor completa el título y descripción');
-                return;
-            }
-            // Agregamos la nomenclatura exacta para que el sistema lo detecte luego
-            finalDesc = `${caseDesc}\n\nTiempo estimado: ${customHours}h\nPrecio: $${customRate}`;
+        } else if (caseType === 'custom' && (!caseTitle.trim() || !caseDesc.trim())) {
+            alert('Por favor completa el título y descripción');
+            return;
         }
 
         setActionLoading(true); 
         const { error } = await supabase.from('cases').insert([{ titulo: finalTitle.trim(), descripcion: finalDesc.trim(), cliente_id: createCaseClient.id, estado: 'abierto' }]); 
         if (!error) {
-            handleCloseCreateModal(); // Cierra y limpia todo si hay éxito
+            setCreateCaseClient(null); 
+            setCaseType(null);
+            setPresetOption(null);
+            setCaseTitle('');
+            setCaseDesc('');
         } else {
             alert(error.message); 
         }
@@ -609,7 +561,7 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente' | 'as
                         <div key={p.id} className="group flex items-center p-4 hover:bg-zinc-900/50 transition-colors">
                             <div className="relative w-14 h-14">
                                 <img src={p.foto_url || 'https://via.placeholder.com/150'} className="w-full h-full rounded-full border-2 border-zinc-800 object-cover" />
-                                {(role === 'abogado' || role === 'estudiante' || role === 'asociado') && p.color_perfil && (
+                                {(role === 'abogado' || role === 'estudiante') && p.color_perfil && (
                                     <span className="absolute bottom-0 right-0 w-4 h-4 rounded-full border-2 border-black" style={{ backgroundColor: p.color_perfil }}></span>
                                 )}
                             </div>
@@ -624,7 +576,7 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente' | 'as
                                         {!isContador && <button onClick={() => {setCreateCaseClient(p); setCaseTitle(''); setCaseDesc(''); setCaseType(null); setPresetOption(null);}} className="text-zinc-500 hover:text-green-400 transition-colors" title="Nuevo Caso"><PlusCircleIcon /></button>}
                                     </>
                                 )}
-                                {!isContador && (role === 'abogado' || role === 'estudiante' || role === 'asociado') && (
+                                {!isContador && (role === 'abogado' || role === 'estudiante') && (
                                     <>
                                         <button onClick={() => handleOpenViewAssignedCases(p)} className="text-zinc-500 hover:text-blue-500 transition-colors" title="Ver Casos Asignados"><EyeIcon /></button>
                                         <button onClick={() => handleOpenPermissions(p)} className="text-zinc-500 hover:text-yellow-500 transition-colors" title="Gestionar Visibilidad/Permisos"><ShieldIcon /></button>
@@ -978,36 +930,24 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente' | 'as
                 </div>
             </Modal>
 
-            {/* FORMULARIO CREAR CASO (REPARADO) */}
-            <Modal isOpen={!!createCaseClient} onClose={handleCloseCreateModal}>
+            <Modal isOpen={!!createCaseClient} onClose={() => {setCreateCaseClient(null); setCaseType(null);}}>
                 <div className="p-8 flex flex-col h-full max-h-[85vh]">
-                    <div className="flex justify-between items-center mb-8 border-b border-zinc-900 pb-4">
-                        <h2 className="text-xl font-bold italic tracking-widest uppercase text-white">Nuevo Caso: {createCaseClient?.primer_nombre}</h2>
-                        <button onClick={handleCloseCreateModal} className="text-zinc-500 hover:text-white text-[10px] font-black uppercase tracking-widest transition-colors">Cerrar ✕</button>
-                    </div>
-                    
+                    <h2 className="text-xl font-bold mb-8 italic tracking-widest uppercase text-white">Nuevo Caso: {createCaseClient?.primer_nombre}</h2>
                     <div className="flex-grow overflow-y-auto pr-2">
                     {caseType ? (
                         caseType === 'custom' ? (
                             <form onSubmit={handleCreateCase} className="space-y-4">
                                 <div>
                                     <label className="block text-xs font-bold text-zinc-300 uppercase tracking-widest mb-2">Título del Caso</label>
-                                    <input type="text" value={caseTitle} onChange={e => setCaseTitle(e.target.value)} placeholder="Ej: Constitución de Empresa" className="w-full bg-black/50 border border-zinc-800 focus:border-zinc-500 rounded px-4 py-3 text-white focus:outline-none transition-colors" required />
+                                    <input type="text" value={caseTitle} onChange={e => setCaseTitle(e.target.value)} placeholder="Ej: Constitución de Empresa" className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500 transition-colors" required />
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-zinc-300 uppercase tracking-widest mb-2">Descripción</label>
-                                    <textarea value={caseDesc} onChange={e => setCaseDesc(e.target.value)} placeholder="Describe los detalles del caso..." className="w-full bg-black/50 border border-zinc-800 focus:border-zinc-500 rounded px-4 py-3 text-white focus:outline-none transition-colors h-24 resize-none" required />
+                                    <textarea value={caseDesc} onChange={e => setCaseDesc(e.target.value)} placeholder="Describe los detalles del caso..." className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500 transition-colors h-24 resize-none" required />
                                 </div>
-                                
-                                {/* NUEVOS CONTROLES PARA CASO PERSONALIZADO */}
-                                <div className="grid grid-cols-2 gap-4 mt-6 p-4 border border-zinc-800 rounded bg-zinc-950/50">
-                                    <NumberControl label="Tiempo Estimado (Hrs)" value={customHours} step={1} min={0.5} onChange={setCustomHours} />
-                                    <NumberControl label="Precio / Tarifa ($)" value={customRate} step={10} min={0} onChange={setCustomRate} isMoney={true} prefix="$" />
-                                </div>
-
-                                <div className="flex gap-3 pt-6 mt-4 border-t border-zinc-900">
-                                    <button type="button" onClick={() => setCaseType(null)} className="flex-1 px-4 py-3 border border-zinc-800 hover:bg-zinc-900 text-zinc-300 rounded uppercase text-xs font-bold tracking-widest transition-colors">Atrás</button>
-                                    <button type="submit" disabled={actionLoading || !caseTitle.trim()} className="flex-1 px-4 py-3 bg-white text-black hover:bg-zinc-300 rounded uppercase text-xs font-bold tracking-widest transition-colors">
+                                <div className="flex gap-3 pt-4 border-t border-white/10">
+                                    <button type="button" onClick={() => setCaseType(null)} className="flex-1 px-4 py-3 border border-white/10 hover:bg-white/5 text-zinc-300 rounded-xl uppercase text-xs font-bold tracking-widest transition-colors">Atrás</button>
+                                    <button type="submit" disabled={actionLoading || !caseTitle.trim()} className="flex-1 px-4 py-3 bg-blue-600/80 hover:bg-blue-500 text-white rounded-xl uppercase text-xs font-bold tracking-widest transition-colors">
                                         {actionLoading ? 'Creando...' : 'Crear Caso'}
                                     </button>
                                 </div>
@@ -1016,68 +956,28 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente' | 'as
                             <form onSubmit={handleCreateCase} className="space-y-4">
                                 <div>
                                     <label className="block text-xs font-bold text-zinc-300 uppercase tracking-widest mb-3">Selecciona un Caso Predeterminado</label>
-                                    
-                                    {/* BUSCADOR INTELIGENTE DESPLEGABLE */}
-                                    <div className="relative mb-6">
-                                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                            <SearchIcon className="h-4 w-4 text-zinc-500" />
-                                        </div>
-                                        <input 
-                                            type="text" 
-                                            placeholder="Buscar caso por número (Ej. 12)..." 
-                                            value={presetSearch} 
-                                            onChange={e => setPresetSearch(e.target.value)} 
-                                            onFocus={() => setIsPresetDropdownOpen(true)}
-                                            className="w-full bg-black border border-zinc-800 focus:border-zinc-500 rounded pl-10 pr-4 py-3 text-white focus:outline-none transition-colors" 
-                                        />
-                                        
-                                        {isPresetDropdownOpen && (
-                                            <>
-                                                <div className="fixed inset-0 z-40" onClick={() => setIsPresetDropdownOpen(false)}></div>
-                                                <div className={`absolute top-full left-0 right-0 mt-2 bg-black border border-zinc-700 shadow-2xl z-50 rounded max-h-60 overflow-y-auto ${scrollbarStyle}`}>
-                                                    {fixedCostOptions.filter(opt => opt.toString().includes(presetSearch)).length === 0 ? (
-                                                        <div className="p-4 text-zinc-500 text-sm text-center">No hay coincidencias.</div>
-                                                    ) : (
-                                                        fixedCostOptions.filter(opt => opt.toString().includes(presetSearch)).map(opt => {
-                                                            const baseHours = 0.5 + opt * 0.1;
-                                                            const baseRate = 30 + opt * 1.5;
-                                                            const hours = Math.round(baseHours * 100) / 100;
-                                                            const rate = Math.round((baseRate + 5) * 100) / 100;
-                                                            return (
-                                                                <div 
-                                                                    key={opt} 
-                                                                    onClick={() => {
-                                                                        setPresetOption(opt);
-                                                                        setPresetSearch(`Caso Predeterminado #${opt}`);
-                                                                        setIsPresetDropdownOpen(false);
-                                                                    }} 
-                                                                    className="p-3 border-b border-zinc-800 hover:bg-zinc-900 cursor-pointer flex justify-between items-center transition-colors"
-                                                                >
-                                                                    <span className="font-bold text-white text-sm">Caso #{opt}</span>
-                                                                    <div className="text-xs text-zinc-400 flex gap-4">
-                                                                        <span>⏱️ {hours}h</span>
-                                                                        <span className="text-green-400 font-mono">${rate}</span>
-                                                                    </div>
-                                                                </div>
-                                                            )
-                                                        })
-                                                    )}
+                                    <input type="text" placeholder="Buscar por número..." value={presetSearch} onChange={e => setPresetSearch(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white mb-4 focus:outline-none focus:border-blue-500" />
+                                    <div className={`space-y-2 max-h-64 overflow-y-auto pr-2 ${scrollbarStyle}`}>
+                                        {fixedCostOptions.filter(opt => opt.toString().includes(presetSearch)).map(opt => {
+                                            const baseHours = 0.5 + opt * 0.1;
+                                            const baseRate = 30 + opt * 1.5;
+                                            const hours = Math.round(baseHours * 100) / 100;
+                                            const rate = Math.round((baseRate + 5) * 100) / 100;
+                                            return (
+                                                <div key={opt} onClick={() => setPresetOption(opt)} className={`p-4 border-2 rounded-xl cursor-pointer transition-all ${presetOption === opt ? 'border-green-500 bg-green-900/20' : 'border-white/10 bg-black/50 hover:border-white/30'}`}>
+                                                    <h4 className="font-bold text-white text-sm uppercase tracking-wider mb-1">Caso Predeterminado #{opt}</h4>
+                                                    <div className="flex justify-between text-xs text-zinc-400">
+                                                        <span className="text-green-400 font-bold">Precio Sugerido: ${rate}</span>
+                                                        <span>⏱️ {hours}h</span>
+                                                    </div>
                                                 </div>
-                                            </>
-                                        )}
+                                            )
+                                        })}
                                     </div>
-
-                                    {presetOption && (
-                                        <div className="p-4 border border-green-900/50 bg-green-950/20 rounded">
-                                            <p className="text-green-500 text-[10px] uppercase tracking-widest font-bold mb-2">Caso Seleccionado:</p>
-                                            <h4 className="text-white font-bold">Caso Predeterminado #{presetOption}</h4>
-                                        </div>
-                                    )}
                                 </div>
-
-                                <div className="flex gap-3 pt-6 border-t border-zinc-900 mt-6">
-                                    <button type="button" onClick={() => setCaseType(null)} className="flex-1 px-4 py-3 border border-zinc-800 hover:bg-zinc-900 text-zinc-300 rounded uppercase text-xs font-bold tracking-widest transition-colors">Atrás</button>
-                                    <button type="submit" disabled={actionLoading || !presetOption} className="flex-1 px-4 py-3 bg-white text-black hover:bg-zinc-300 disabled:opacity-50 rounded uppercase text-xs font-bold tracking-widest transition-colors">
+                                <div className="flex gap-3 pt-4 border-t border-white/10">
+                                    <button type="button" onClick={() => setCaseType(null)} className="flex-1 px-4 py-3 border border-white/10 hover:bg-white/5 text-zinc-300 rounded-xl uppercase text-xs font-bold tracking-widest transition-colors">Atrás</button>
+                                    <button type="submit" disabled={actionLoading || !presetOption} className="flex-1 px-4 py-3 bg-green-600/80 hover:bg-green-500 text-white rounded-xl uppercase text-xs font-bold tracking-widest transition-colors">
                                         {actionLoading ? 'Creando...' : 'Crear Caso'}
                                     </button>
                                 </div>
@@ -1086,16 +986,16 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente' | 'as
                     ) : (
                         <div className="space-y-4">
                             <p className="text-sm text-zinc-300 mb-6">Selecciona el tipo de caso que deseas crear:</p>
-                            <button onClick={() => setCaseType('custom')} className="w-full p-6 border border-zinc-800 hover:border-zinc-500 bg-black hover:bg-zinc-900 rounded transition-all text-left flex items-start gap-4">
+                            <button onClick={() => setCaseType('custom')} className="w-full p-6 border border-white/10 hover:border-white/30 bg-black/50 hover:bg-white/5 rounded-xl transition-all text-left flex items-start gap-4">
                                 <div>
                                     <h3 className="font-bold text-white uppercase tracking-widest text-sm mb-1">Caso Personalizado</h3>
-                                    <p className="text-zinc-400 text-xs">Crea un caso con tu propio título, descripción, tiempo estimado y tarifa manual.</p>
+                                    <p className="text-zinc-400 text-xs">Crea un caso con tu propio título y descripción manual.</p>
                                 </div>
                             </button>
-                            <button onClick={() => setCaseType('preset')} className="w-full p-6 border border-zinc-800 hover:border-zinc-500 bg-black hover:bg-zinc-900 rounded transition-all text-left flex items-start gap-4">
+                            <button onClick={() => setCaseType('preset')} className="w-full p-6 border border-white/10 hover:border-green-500/50 bg-black/50 hover:bg-green-900/10 rounded-xl transition-all text-left flex items-start gap-4">
                                 <div>
-                                    <h3 className="font-bold text-white uppercase tracking-widest text-sm mb-1">Casos Predeterminados (Fijos)</h3>
-                                    <p className="text-zinc-400 text-xs">Elige de la lista inteligente de casos con precios y tiempos auto-calculados.</p>
+                                    <h3 className="font-bold text-white uppercase tracking-widest text-sm mb-1 text-green-400">Casos Predeterminados (Costos Fijos)</h3>
+                                    <p className="text-zinc-400 text-xs">Elige de una lista de 50 casos con precios y tiempos auto-calculados.</p>
                                 </div>
                             </button>
                         </div>
@@ -1106,24 +1006,14 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente' | 'as
 
             <Modal isOpen={!!profileToEdit} onClose={() => setProfileToEdit(null)}>
                 <form onSubmit={handleUpdateProfile} className="p-8">
-                    <h2 className="text-xl font-bold mb-6 italic tracking-widest uppercase text-white">Editar Perfil</h2>
-                    
-                    <div className="bg-red-950/30 border border-red-900/50 p-4 mb-6 rounded-xl">
-                        <p className="text-red-400 text-[10px] uppercase tracking-widest font-bold">Nota de Seguridad:</p>
-                        <p className="text-zinc-400 text-xs mt-1">El email de inicio de sesión no se puede modificar desde aquí. Debe hacerse desde la consola central de Supabase.</p>
-                    </div>
-
+                    <h2 className="text-xl font-bold mb-8 italic tracking-widest uppercase text-white">Editar Perfil</h2>
                     <div className="grid grid-cols-2 gap-6">
                         <InputField label="Nombre" value={editFormData.primer_nombre || ''} onChange={(e: any) => setEditFormData({...editFormData, primer_nombre: e.target.value})} />
                         <InputField label="Apellido" value={editFormData.primer_apellido || ''} onChange={(e: any) => setEditFormData({...editFormData, primer_apellido: e.target.value})} />
                         <InputField label="Cédula" value={editFormData.cedula || ''} onChange={(e: any) => setEditFormData({...editFormData, cedula: e.target.value})} />
+                        <InputField label="Email" value={editFormData.email || ''} onChange={(e: any) => setEditFormData({...editFormData, email: e.target.value})} />
                         
-                        {/* EL EMAIL AHORA ESTÁ DESHABILITADO Y OPACO */}
-                        <div className="opacity-50 pointer-events-none">
-                            <InputField label="Email (Bloqueado)" value={editFormData.email || ''} onChange={() => {}} />
-                        </div>
-                        
-                        {(role === 'abogado' || role === 'estudiante' || role === 'asociado') && (
+                        {(role === 'abogado' || role === 'estudiante') && (
                             <div className="col-span-2 pt-6 border-t border-zinc-900 mt-2">
                                 <label className="block text-zinc-500 text-[10px] font-black uppercase tracking-[0.3em] mb-4">
                                     Color de Identificación
@@ -1142,7 +1032,7 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente' | 'as
                                                 style={{ backgroundColor: color }}
                                                 title={isUsed && !isSelected ? 'En uso por otro trabajador' : 'Seleccionar color'}
                                             >
-                                                {isSelected && <CheckIcon />}
+                                                {isSelected && <CheckIcon className="absolute inset-0 m-auto text-white w-4 h-4 stroke-[3] drop-shadow-md" />}
                                             </button>
                                         );
                                     })}
@@ -1150,9 +1040,9 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente' | 'as
                             </div>
                         )}
                     </div>
-                    <div className="mt-8 flex justify-end gap-4 border-t border-zinc-900 pt-6">
-                        <button type="button" onClick={() => setProfileToEdit(null)} className="py-2 px-6 text-zinc-400 hover:text-white transition-colors text-[10px] uppercase tracking-widest font-bold">Cancelar</button>
-                        <button type="submit" disabled={actionLoading} className="bg-white text-black font-bold py-2 px-6 rounded-xl hover:bg-zinc-200 transition-colors disabled:opacity-50 text-[10px] uppercase tracking-widest">Guardar Cambios</button>
+                    <div className="mt-8 flex justify-end gap-4">
+                        <button type="button" onClick={() => setProfileToEdit(null)} className="py-2 px-6 text-zinc-400 hover:text-white transition-colors">Cancelar</button>
+                        <button type="submit" disabled={actionLoading} className="bg-white text-black font-bold py-2 px-6 hover:bg-zinc-200 transition-colors disabled:opacity-50">Guardar</button>
                     </div>
                 </form>
             </Modal>
@@ -1173,8 +1063,8 @@ const ListaPerfiles: React.FC<{ role: 'abogado' | 'estudiante' | 'cliente' | 'as
                     <h2 className="text-xl font-bold text-white mb-4 italic tracking-widest uppercase">{confirmDialog.title}</h2>
                     <p className="text-zinc-400 mb-8">{confirmDialog.message}</p>
                     <div className="flex justify-center gap-4">
-                        <button onClick={() => setConfirmDialog({ ...confirmDialog, isOpen: false })} className="py-2 px-6 text-zinc-400 hover:text-white transition-colors text-[10px] uppercase font-bold tracking-widest border border-white/10 rounded-xl hover:bg-white/5">Cancelar</button>
-                        <button onClick={() => { confirmDialog.onConfirm(); setConfirmDialog({ ...confirmDialog, isOpen: false }); }} disabled={actionLoading} className="bg-red-600/80 backdrop-blur-md shadow-lg text-white font-bold py-2 px-6 hover:bg-red-500 transition-colors uppercase tracking-widest text-[10px] disabled:opacity-50 rounded-xl">Confirmar</button>
+                        <button onClick={() => setConfirmDialog({ ...confirmDialog, isOpen: false })} className="py-2 px-6 text-zinc-400 hover:text-white transition-colors text-[10px] uppercase font-bold tracking-widest">Cancelar</button>
+                        <button onClick={() => { confirmDialog.onConfirm(); setConfirmDialog({ ...confirmDialog, isOpen: false }); }} disabled={actionLoading} className="bg-red-900 text-white font-bold py-2 px-6 hover:bg-red-800 transition-colors uppercase tracking-widest text-[10px] disabled:opacity-50">Confirmar</button>
                     </div>
                 </div>
             </Modal>

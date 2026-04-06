@@ -11,7 +11,7 @@ import ListaPerfiles from './ListaPerfiles';
 import ApprovalsView from './ApprovalsView';
 
 // --- Tipos reutilizables ---
-type UserRole = 'administrador' | 'asociado' | 'abogado' | 'contador' | 'estudiante' | 'cliente';
+type UserRole = 'abogado' | 'estudiante' | 'cliente' | 'administradores';
 type ChatStep = 'status' | 'case' | 'chat';
 type CaseStatus = 'abierto' | 'pendiente' | 'cerrado';
 
@@ -86,7 +86,7 @@ const scrollbarStyle =
 const AdminChatView: React.FC<{ session: Session }> = ({ session }) => {
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [allCases, setAllCases] = useState<CaseItem[]>([]);
-  const [activeTab, setActiveTab] = useState<UserRole>('administrador');
+  const [activeTab, setActiveTab] = useState<UserRole>('abogado');
 
   const [selectedContact, setSelectedContact] = useState<UserProfile | null>(null);
   const [chatStep, setChatStep] = useState<ChatStep>('chat');
@@ -107,14 +107,14 @@ const AdminChatView: React.FC<{ session: Session }> = ({ session }) => {
 
   useEffect(() => {
     const fetchChatData = async () => {
-      const { data: profiles } = await supabase.from('profiles').select('*').neq('id', session.user.id);
+      const { data: profiles } = await supabase.from('profiles').select('*').neq('rol', 'admin');
       if (profiles) setUsers(profiles);
 
       const { data: casesData } = await supabase.from('cases').select('*');
       if (casesData) setAllCases(casesData);
     };
     fetchChatData();
-  }, [session.user.id]);
+  }, []);
 
   const fetchMessages = useCallback(async () => {
     if (!selectedContact) return;
@@ -207,35 +207,26 @@ const AdminChatView: React.FC<{ session: Session }> = ({ session }) => {
     setChatStep('chat');
   };
 
-  const filteredUsers = users.filter(u => {
-    if (activeTab === 'administrador') return u.rol === 'admin';
-    if (activeTab === 'cliente') return u.rol === 'cliente';
-    return u.rol === 'trabajador' && u.categoria_usuario === activeTab;
-  });
-
+  const filteredUsers = users.filter(u =>
+    activeTab === 'cliente' ? u.rol === 'cliente' : u.rol === 'trabajador' && u.categoria_usuario === activeTab
+  );
   const clientCases = allCases.filter(c => c.cliente_id === selectedContact?.id && c.estado === selectedStatus);
 
   return (
     <div className="animate-in fade-in duration-500 font-mono w-full max-w-6xl mx-auto h-[75vh] flex flex-col md:flex-row border border-white/10 bg-black/60 backdrop-blur-md rounded-2xl overflow-hidden shadow-2xl">
       <div className="w-full md:w-1/3 border-b md:border-b-0 md:border-r border-white/10 flex flex-col bg-black/40">
-        <div className="flex border-b border-white/10 flex-shrink-0 overflow-x-auto scrollbar-hide">
-          <button onClick={() => setActiveTab('administrador')} className={`flex-shrink-0 px-4 py-4 text-[10px] font-black uppercase tracking-widest transition-colors ${activeTab === 'administrador' ? 'bg-white/10 text-white border-b-2 border-white' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}>
-            Admin
-          </button>
-          <button onClick={() => setActiveTab('asociado')} className={`flex-shrink-0 px-4 py-4 text-[10px] font-black uppercase tracking-widest transition-colors ${activeTab === 'asociado' ? 'bg-white/10 text-white border-b-2 border-white' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}>
-            Asociados
-          </button>
-          <button onClick={() => setActiveTab('abogado')} className={`flex-shrink-0 px-4 py-4 text-[10px] font-black uppercase tracking-widest transition-colors ${activeTab === 'abogado' ? 'bg-white/10 text-white border-b-2 border-white' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}>
+        <div className="flex border-b border-white/10 flex-shrink-0">
+          <button onClick={() => setActiveTab('abogado')} className={`flex-1 py-4 text-[10px] font-black uppercase tracking-widest transition-colors ${activeTab === 'abogado' ? 'bg-white/10 text-white border-b-2 border-white' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}>
             Abogados
           </button>
-          <button onClick={() => setActiveTab('estudiante')} className={`flex-shrink-0 px-4 py-4 text-[10px] font-black uppercase tracking-widest transition-colors ${activeTab === 'estudiante' ? 'bg-white/10 text-white border-b-2 border-white' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}>
+          <button onClick={() => setActiveTab('estudiante')} className={`flex-1 py-4 text-[10px] font-black uppercase tracking-widest transition-colors ${activeTab === 'estudiante' ? 'bg-white/10 text-white border-b-2 border-white' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}>
             Estudiantes
           </button>
-          <button onClick={() => setActiveTab('cliente')} className={`flex-shrink-0 px-4 py-4 text-[10px] font-black uppercase tracking-widest transition-colors ${activeTab === 'cliente' ? 'bg-white/10 text-white border-b-2 border-white' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}>
+          <button onClick={() => setActiveTab('cliente')} className={`flex-1 py-4 text-[10px] font-black uppercase tracking-widest transition-colors ${activeTab === 'cliente' ? 'bg-white/10 text-white border-b-2 border-white' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}>
             Clientes
           </button>
         </div>
-        <div className="px-3 py-2 border-b border-white/10 bg-black/30 flex-shrink-0">
+        <div className="px-3 py-2 border-b border-white/10 bg-black/30">
           <button onClick={() => setIsCreateModalOpen(true)} className="w-full text-xs uppercase tracking-widest font-black py-2 bg-blue-600/80 hover:bg-blue-500 rounded transition-colors backdrop-blur-md">
             + Nueva conversación
           </button>
@@ -259,8 +250,8 @@ const AdminChatView: React.FC<{ session: Session }> = ({ session }) => {
                 </div>
                 <div>
                   <p className="text-xs font-bold text-white uppercase tracking-widest">{`${user.primer_nombre || ''} ${user.primer_apellido || ''}`}</p>
-                  <p className={`text-[9px] uppercase tracking-widest mt-1 ${activeTab === 'administrador' ? 'text-purple-400' : activeTab === 'abogado' ? 'text-green-400' : activeTab === 'estudiante' ? 'text-blue-400' : 'text-zinc-400'}`}>
-                    {activeTab === 'cliente' ? 'Cliente' : activeTab === 'administrador' ? 'Administrador' : activeTab}
+                  <p className={`text-[9px] uppercase tracking-widest mt-1 ${activeTab === 'abogado' ? 'text-green-400' : activeTab === 'estudiante' ? 'text-blue-400' : 'text-zinc-400'}`}>
+                    {activeTab === 'cliente' ? 'Cliente' : activeTab}
                   </p>
                 </div>
               </button>
@@ -286,7 +277,7 @@ const AdminChatView: React.FC<{ session: Session }> = ({ session }) => {
               </div>
               <div>
                 <h3 className="font-bold uppercase tracking-widest text-sm text-white">{`${selectedContact.primer_nombre || ''} ${selectedContact.primer_apellido || ''}`}</h3>
-                <p className="text-[8px] text-zinc-400 uppercase tracking-widest">{selectedContact.rol === 'cliente' ? 'Cliente' : selectedContact.rol === 'admin' ? 'Administrador' : selectedContact.categoria_usuario}</p>
+                <p className="text-[8px] text-zinc-400 uppercase tracking-widest">{selectedContact.rol === 'cliente' ? 'Cliente' : selectedContact.categoria_usuario}</p>
               </div>
             </div>
 
@@ -380,7 +371,6 @@ const AdminChatView: React.FC<{ session: Session }> = ({ session }) => {
         )}
       </div>
 
-      {/* Modal para Crear Conversación / Caso */}
       {isCreateModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-black/80 backdrop-blur-xl border border-white/10 p-8 rounded-2xl shadow-2xl w-full max-w-md">
@@ -425,16 +415,8 @@ const AdminChatView: React.FC<{ session: Session }> = ({ session }) => {
 // ==========================================
 const AdminDashboard: React.FC<{ session: Session }> = ({ session }) => {
   const [activeView, setActiveView] = useState<AdminViewName>(() => (sessionStorage.getItem('adminActiveView') as AdminViewName) || 'HOME');
-  
-  // APLICANDO MEMORIA CACHÉ A LOS ROLES SELECCIONADOS
-  const [selectedRoleForCreate, setSelectedRoleForCreate] = useState<UserRole | undefined>(() => {
-      const saved = sessionStorage.getItem('adminSelectedRoleCreate');
-      return saved ? (saved as UserRole) : undefined;
-  });
-  const [selectedRoleForView, setSelectedRoleForView] = useState<UserRole | undefined>(() => {
-      const saved = sessionStorage.getItem('adminSelectedRoleView');
-      return saved ? (saved as UserRole) : undefined;
-  });
+  const [selectedRoleForCreate, setSelectedRoleForCreate] = useState<UserRole | undefined>();
+  const [selectedRoleForView, setSelectedRoleForView] = useState<UserRole | undefined>();
 
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
   const [viewMenuOpen, setViewMenuOpen] = useState(false);
@@ -448,16 +430,6 @@ const AdminDashboard: React.FC<{ session: Session }> = ({ session }) => {
   useEffect(() => {
     sessionStorage.setItem('adminActiveView', activeView);
   }, [activeView]);
-
-  useEffect(() => {
-      if (selectedRoleForCreate) sessionStorage.setItem('adminSelectedRoleCreate', selectedRoleForCreate);
-      else sessionStorage.removeItem('adminSelectedRoleCreate');
-  }, [selectedRoleForCreate]);
-
-  useEffect(() => {
-      if (selectedRoleForView) sessionStorage.setItem('adminSelectedRoleView', selectedRoleForView);
-      else sessionStorage.removeItem('adminSelectedRoleView');
-  }, [selectedRoleForView]);
 
   useEffect(() => {
     const fetchInitialData = async () => {
@@ -510,6 +482,27 @@ const AdminDashboard: React.FC<{ session: Session }> = ({ session }) => {
     handleNavigate('LIST_USERS');
   };
 
+  const renderContent = () => {
+    switch (activeView) {
+      case 'TIME_BILLING':
+        return <TimeBillingMaestro onCancel={() => handleNavigate('HOME')} />;
+      case 'REPORTS':
+        return <ReportsView onCancel={() => handleNavigate('HOME')} />;
+      case 'APPROVALS':
+        return <ApprovalsView setActiveView={(conf: any) => handleNavigate(conf.name)} onCancel={() => handleNavigate('HOME')} />;
+      case 'CHAT':
+        return <AdminChatView session={session} />;
+      case 'PROFILE':
+        return <AdminProfile session={session} onCancel={() => handleNavigate('HOME')} />;
+      case 'CREATE_USER':
+        return <UserManagementView preselectedRole={selectedRoleForCreate as any} onCancel={() => handleNavigate('HOME')} />;
+      case 'LIST_USERS':
+        return selectedRoleForView ? <ListaPerfiles role={selectedRoleForView as any} onCancel={() => handleNavigate('HOME')} /> : null;
+      default:
+        return null;
+    }
+  };
+
   return (
     <div className="bg-black min-h-screen text-white flex flex-col font-sans relative">
       <style>{`
@@ -537,9 +530,7 @@ const AdminDashboard: React.FC<{ session: Session }> = ({ session }) => {
               <>
                 <div className="fixed inset-0 z-[95]" onClick={closeAllMenus} />
                 <div className="absolute left-1/2 -translate-x-1/2 mt-6 w-56 bg-black/60 backdrop-blur-xl border border-white/10 shadow-2xl shadow-black rounded-2xl py-2 z-[100] animate-in fade-in slide-in-from-top-3 duration-300 overflow-hidden font-mono">
-                  <button onClick={() => handleCreateClick('asociado')} className="w-full text-left px-5 py-4 text-xs font-bold uppercase tracking-widest text-zinc-300 hover:text-white hover:bg-white/10 transition-colors border-b border-white/5">Asociado</button>
                   <button onClick={() => handleCreateClick('abogado')} className="w-full text-left px-5 py-4 text-xs font-bold uppercase tracking-widest text-zinc-300 hover:text-white hover:bg-white/10 transition-colors border-b border-white/5">Abogado</button>
-                  <button onClick={() => handleCreateClick('contador')} className="w-full text-left px-5 py-4 text-xs font-bold uppercase tracking-widest text-zinc-300 hover:text-white hover:bg-white/10 transition-colors border-b border-white/5">Contador</button>
                   <button onClick={() => handleCreateClick('estudiante')} className="w-full text-left px-5 py-4 text-xs font-bold uppercase tracking-widest text-zinc-300 hover:text-white hover:bg-white/10 transition-colors border-b border-white/5">Estudiante</button>
                   <button onClick={() => handleCreateClick('cliente')} className="w-full text-left px-5 py-4 text-xs font-bold uppercase tracking-widest text-zinc-300 hover:text-white hover:bg-white/10 transition-colors">Cliente</button>
                 </div>
@@ -554,9 +545,7 @@ const AdminDashboard: React.FC<{ session: Session }> = ({ session }) => {
               <>
                 <div className="fixed inset-0 z-[95]" onClick={closeAllMenus} />
                 <div className="absolute left-1/2 -translate-x-1/2 mt-6 w-56 bg-black/60 backdrop-blur-xl border border-white/10 shadow-2xl shadow-black rounded-2xl py-2 z-[100] animate-in fade-in slide-in-from-top-3 duration-300 overflow-hidden font-mono">
-                  <button onClick={() => handleViewClick('asociado')} className="w-full text-left px-5 py-4 text-xs font-bold uppercase tracking-widest text-zinc-300 hover:text-white hover:bg-white/10 transition-colors border-b border-white/5">Asociados</button>
                   <button onClick={() => handleViewClick('abogado')} className="w-full text-left px-5 py-4 text-xs font-bold uppercase tracking-widest text-zinc-300 hover:text-white hover:bg-white/10 transition-colors border-b border-white/5">Abogados</button>
-                  <button onClick={() => handleViewClick('contador')} className="w-full text-left px-5 py-4 text-xs font-bold uppercase tracking-widest text-zinc-300 hover:text-white hover:bg-white/10 transition-colors border-b border-white/5">Contadores</button>
                   <button onClick={() => handleViewClick('estudiante')} className="w-full text-left px-5 py-4 text-xs font-bold uppercase tracking-widest text-zinc-300 hover:text-white hover:bg-white/10 transition-colors border-b border-white/5">Estudiantes</button>
                   <button onClick={() => handleViewClick('cliente')} className="w-full text-left px-5 py-4 text-xs font-bold uppercase tracking-widest text-zinc-300 hover:text-white hover:bg-white/10 transition-colors">Clientes</button>
                 </div>
@@ -648,18 +637,14 @@ const AdminDashboard: React.FC<{ session: Session }> = ({ session }) => {
 
             <div className="mt-4 border-t border-zinc-800 pt-6 flex flex-col gap-4">
               <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-black">Registrar</p>
-              <button onClick={() => handleCreateClick('asociado')} className="text-lg font-bold text-left text-zinc-300 hover:text-white">Asociado</button>
               <button onClick={() => handleCreateClick('abogado')} className="text-lg font-bold text-left text-zinc-300 hover:text-white">Abogado</button>
-              <button onClick={() => handleCreateClick('contador')} className="text-lg font-bold text-left text-zinc-300 hover:text-white">Contador</button>
               <button onClick={() => handleCreateClick('estudiante')} className="text-lg font-bold text-left text-zinc-300 hover:text-white">Estudiante</button>
               <button onClick={() => handleCreateClick('cliente')} className="text-lg font-bold text-left text-zinc-300 hover:text-white">Cliente</button>
             </div>
 
             <div className="mt-4 border-t border-zinc-800 pt-6 flex flex-col gap-4">
               <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-black">Perfiles</p>
-              <button onClick={() => handleViewClick('asociado')} className="text-lg font-bold text-left text-zinc-300 hover:text-white">Asociados</button>
               <button onClick={() => handleViewClick('abogado')} className="text-lg font-bold text-left text-zinc-300 hover:text-white">Abogados</button>
-              <button onClick={() => handleViewClick('contador')} className="text-lg font-bold text-left text-zinc-300 hover:text-white">Contadores</button>
               <button onClick={() => handleViewClick('estudiante')} className="text-lg font-bold text-left text-zinc-300 hover:text-white">Estudiantes</button>
               <button onClick={() => handleViewClick('cliente')} className="text-lg font-bold text-left text-zinc-300 hover:text-white">Clientes</button>
             </div>
@@ -674,49 +659,16 @@ const AdminDashboard: React.FC<{ session: Session }> = ({ session }) => {
         </div>
       )}
 
-      <main className="flex-grow relative p-4 sm:p-8 w-full max-w-7xl mx-auto flex flex-col">
-        <div className={`${activeView === 'HOME' ? 'flex' : 'hidden'} relative flex-grow items-center justify-center pointer-events-none`}>
-          <div className="text-center font-bold text-5xl md:text-7xl font-serif tracking-widest">
-            <h1 className="text-white drop-shadow-2xl">Regalado & Regalado</h1>
+      <main className="flex-grow relative p-4 sm:p-8 w-full max-w-7xl mx-auto">
+        <div className={`${activeView === 'HOME' ? 'block' : 'hidden'} relative`}>
+          <div className="flex items-center justify-center h-[60vh] pointer-events-none">
+            <div className="text-center font-bold text-5xl md:text-7xl font-serif tracking-widest">
+              <h1 className="text-white drop-shadow-2xl">Regalado & Regalado</h1>
+            </div>
           </div>
         </div>
-
-        <div className={`${activeView === 'TIME_BILLING' ? 'flex-grow flex flex-col' : 'hidden'}`}>
-          <TimeBillingMaestro onCancel={() => handleNavigate('HOME')} />
-        </div>
-        
-        <div className={`${activeView === 'REPORTS' ? 'flex-grow flex flex-col' : 'hidden'}`}>
-          <ReportsView onCancel={() => handleNavigate('HOME')} />
-        </div>
-
-        <div className={`${activeView === 'APPROVALS' ? 'flex-grow flex flex-col' : 'hidden'}`}>
-          <ApprovalsView setActiveView={(conf: any) => handleNavigate(conf.name)} onCancel={() => handleNavigate('HOME')} />
-        </div>
-
-        <div className={`${activeView === 'CHAT' ? 'flex-grow flex flex-col' : 'hidden'}`}>
-          <AdminChatView session={session} />
-        </div>
-
-        <div className={`${activeView === 'PROFILE' ? 'flex-grow flex flex-col' : 'hidden'}`}>
-          <AdminProfile session={session} onCancel={() => handleNavigate('HOME')} />
-        </div>
-
-        {/* FORZAMOS A CARGAR TODOS EN SIMULTÁNEO PARA QUE NUNCA SE DESTRUYAN AL CAMBIAR DE PESTAÑA */}
-        <div className={`${activeView === 'CREATE_USER' ? 'flex-grow flex flex-col' : 'hidden'}`}>
-          <div className={selectedRoleForCreate === 'asociado' ? 'flex-grow flex flex-col' : 'hidden'}><UserManagementView preselectedRole="asociado" onCancel={() => handleNavigate('HOME')} /></div>
-          <div className={selectedRoleForCreate === 'abogado' ? 'flex-grow flex flex-col' : 'hidden'}><UserManagementView preselectedRole="abogado" onCancel={() => handleNavigate('HOME')} /></div>
-          <div className={selectedRoleForCreate === 'contador' ? 'flex-grow flex flex-col' : 'hidden'}><UserManagementView preselectedRole="contador" onCancel={() => handleNavigate('HOME')} /></div>
-          <div className={selectedRoleForCreate === 'estudiante' ? 'flex-grow flex flex-col' : 'hidden'}><UserManagementView preselectedRole="estudiante" onCancel={() => handleNavigate('HOME')} /></div>
-          <div className={selectedRoleForCreate === 'cliente' ? 'flex-grow flex flex-col' : 'hidden'}><UserManagementView preselectedRole="cliente" onCancel={() => handleNavigate('HOME')} /></div>
-        </div>
-
-        {/* LO MISMO CON LA LISTA DE PERFILES */}
-        <div className={`${activeView === 'LIST_USERS' ? 'flex-grow flex flex-col' : 'hidden'}`}>
-          <div className={selectedRoleForView === 'asociado' ? 'flex-grow flex flex-col' : 'hidden'}><ListaPerfiles role="asociado" onCancel={() => handleNavigate('HOME')} /></div>
-          <div className={selectedRoleForView === 'abogado' ? 'flex-grow flex flex-col' : 'hidden'}><ListaPerfiles role="abogado" onCancel={() => handleNavigate('HOME')} /></div>
-          <div className={selectedRoleForView === 'contador' ? 'flex-grow flex flex-col' : 'hidden'}><ListaPerfiles role="contador" onCancel={() => handleNavigate('HOME')} /></div>
-          <div className={selectedRoleForView === 'estudiante' ? 'flex-grow flex flex-col' : 'hidden'}><ListaPerfiles role="estudiante" onCancel={() => handleNavigate('HOME')} /></div>
-          <div className={selectedRoleForView === 'cliente' ? 'flex-grow flex flex-col' : 'hidden'}><ListaPerfiles role="cliente" onCancel={() => handleNavigate('HOME')} /></div>
+        <div className={`${activeView === 'HOME' ? 'hidden' : 'block'}`}>
+           {renderContent()}
         </div>
       </main>
     </div>
